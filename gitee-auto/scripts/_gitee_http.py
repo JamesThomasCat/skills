@@ -1,13 +1,8 @@
 #!/usr/bin/env python3
-"""Fetch Gitee repository members, contributors, commits, and commit diffs.
-
-Auth: GITEE_ACCESS_TOKEN or --token. Never print the token.
-Default API base: https://gitee.com/api/v5
-"""
+"""Shared Gitee Open API v5 helpers. Not a user-facing command."""
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import sys
@@ -22,22 +17,16 @@ MAX_PER_PAGE = 100
 PATCH_CHARS = 4000
 
 
-def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Fetch Gitee repo users, commits, and diffs")
-    p.add_argument("--owner", required=True, help="Namespace path (user/org/enterprise)")
-    p.add_argument("--repo", required=True, help="Repository path")
-    p.add_argument("--api-base", default=os.environ.get("GITEE_API_BASE", DEFAULT_API_BASE))
-    p.add_argument("--token", default=os.environ.get("GITEE_ACCESS_TOKEN", ""))
-    p.add_argument("--sha", default="", help="Branch name or starting SHA for commit list")
-    p.add_argument("--since", default="", help="ISO 8601 start time")
-    p.add_argument("--until", default="", help="ISO 8601 end time")
-    p.add_argument("--author", default="", help="Filter commits by email or login")
-    p.add_argument("--path", default="", help="Only commits touching this file path")
-    p.add_argument("--details-limit", type=int, default=40, help="How many commits to hydrate with files/patch; 0 = none")
-    p.add_argument("--max-pages", type=int, default=50, help="Safety cap for paginated lists")
-    p.add_argument("--sleep", type=float, default=0.15, help="Seconds between detail requests")
-    p.add_argument("--out", default="", help="Write JSON here; default stdout")
-    return p.parse_args()
+def add_common_args(parser) -> None:
+    parser.add_argument("--owner", required=True, help="Namespace path (user/org/enterprise)")
+    parser.add_argument("--repo", required=True, help="Repository path")
+    parser.add_argument("--api-base", default=os.environ.get("GITEE_API_BASE", DEFAULT_API_BASE))
+    parser.add_argument("--token", default=os.environ.get("GITEE_ACCESS_TOKEN", ""))
+    parser.add_argument("--out", default="", help="Write JSON here; default stdout")
+
+
+def repo_path(owner: str, repo: str) -> tuple[str, str]:
+    return urllib.parse.quote(owner, safe=""), urllib.parse.quote(repo, safe="")
 
 
 def request_json(url: str, token: str, query: dict[str, Any] | None = None) -> Any:
@@ -121,15 +110,17 @@ def slim_user(obj: Any) -> dict[str, Any] | None:
 def slim_commit_list_item(item: dict[str, Any]) -> dict[str, Any]:
     commit = item.get("commit") if isinstance(item.get("commit"), dict) else {}
     author_git = commit.get("author") if isinstance(commit.get("author"), dict) else {}
+    author = item.get("author") if isinstance(item.get("author"), dict) else {}
+    committer = item.get("committer") if isinstance(item.get("committer"), dict) else {}
     return {
         "sha": item.get("sha"),
         "html_url": item.get("html_url"),
         "message": commit.get("message") or "",
-        "author_login": (item.get("author") or {}).get("login") if isinstance(item.get("author"), dict) else None,
-        "author_name": (item.get("author") or {}).get("name") if isinstance(item.get("author"), dict) else author_git.get("name"),
+        "author_login": author.get("login"),
+        "author_name": author.get("name") or author_git.get("name"),
         "author_email": author_git.get("email"),
         "authored_at": author_git.get("date"),
-        "committer_login": (item.get("committer") or {}).get("login") if isinstance(item.get("committer"), dict) else None,
+        "committer_login": committer.get("login"),
     }
 
 
@@ -171,124 +162,112 @@ def collect_errors(errors: list[dict[str, str]], step: str, err: Exception) -> N
     errors.append({"step": step, "error": str(err)})
 
 
-def main() -> int:
-    args = parse_args()
-    api = args.api_base.rstrip("/")
-    owner = urllib.parse.quote(args.owner, safe="")
-    repo = urllib.parse.quote(args.repo, safe="")
-    errors: list[dict[str, str]] = []
-
-    collaborators: list[Any] = []
-    collab_truncated = False
+def fetch_collaborators(
+    api: str, owner_q: str, repo_q: str, token: str, max_pages: int, errors: list[dict[str, str]]
+) -> tuple[list[dict[str, Any]], bool]:
     try:
-        collaborators, collab_truncated = paginate(
-            api,
-            f"/repos/{owner}/{repo}/collaborators",
-            args.token,
-            {},
-            args.max_pages,
-        )
+        raw, truncated = paginate(api, f"/repos/{owner_q}/{repo_q}/collaborators", token, {}, max_pages)
+        users = [u for u in (slim_user(x) for x in raw) if u]
+        return users, truncated
     except Exception as e:
         collect_errors(errors, "collaborators", e)
+        return [], False
 
-    contributors: list[Any] = []
+
+def fetch_contributors(
+    api: str, owner_q: str, repo_q: str, token: str, errors: list[dict[str, str]]
+) -> list[dict[str, Any]]:
     try:
         data = request_json(
-            f"{api}/repos/{owner}/{repo}/contributors",
-            args.token,
+            f"{api}/repos/{owner_q}/{repo_q}/contributors",
+            token,
             {"type": "authors"},
         )
-        contributors = data if isinstance(data, list) else []
+        raw = data if isinstance(data, list) else []
+        return [u for u in (slim_user(x) for x in raw) if u]
     except Exception as e:
         collect_errors(errors, "contributors", e)
+        return []
 
-    commit_query = {
-        "sha": args.sha,
-        "since": args.since,
-        "until": args.until,
-        "author": args.author,
-        "path": args.path,
-    }
-    commits_raw: list[Any] = []
-    commits_truncated = False
+
+def fetch_commits(
+    api: str,
+    owner_q: str,
+    repo_q: str,
+    token: str,
+    query: dict[str, Any],
+    max_pages: int,
+    errors: list[dict[str, str]],
+) -> tuple[list[dict[str, Any]], bool]:
     try:
-        commits_raw, commits_truncated = paginate(
-            api,
-            f"/repos/{owner}/{repo}/commits",
-            args.token,
-            commit_query,
-            args.max_pages,
-        )
+        raw, truncated = paginate(api, f"/repos/{owner_q}/{repo_q}/commits", token, query, max_pages)
+        commits = [slim_commit_list_item(c) for c in raw if isinstance(c, dict)]
+        return commits, truncated
     except Exception as e:
         collect_errors(errors, "commits", e)
+        return [], False
 
-    commits = [slim_commit_list_item(c) for c in commits_raw if isinstance(c, dict)]
-    details: list[dict[str, Any]] = []
-    details_truncated = False
-    limit = args.details_limit
+
+def fetch_commit_detail(
+    api: str, owner_q: str, repo_q: str, token: str, sha: str, errors: list[dict[str, str]]
+) -> dict[str, Any] | None:
+    try:
+        raw = request_json(
+            f"{api}/repos/{owner_q}/{repo_q}/commits/{urllib.parse.quote(sha, safe='')}",
+            token,
+        )
+        if isinstance(raw, dict):
+            return slim_commit_detail(raw)
+    except Exception as e:
+        collect_errors(errors, f"commit_detail:{sha}", e)
+    return None
+
+
+def fetch_commit_details(
+    api: str,
+    owner_q: str,
+    repo_q: str,
+    token: str,
+    commits: list[dict[str, Any]],
+    limit: int,
+    sleep_s: float,
+    errors: list[dict[str, str]],
+) -> tuple[list[dict[str, Any]], bool]:
     if limit < 0:
         limit = len(commits)
     to_hydrate = commits[:limit]
-    if limit and len(commits) > limit:
-        details_truncated = True
+    truncated = bool(limit and len(commits) > limit)
+    details: list[dict[str, Any]] = []
     for i, c in enumerate(to_hydrate):
         sha = c.get("sha")
         if not sha:
             continue
-        try:
-            raw = request_json(f"{api}/repos/{owner}/{repo}/commits/{urllib.parse.quote(sha, safe='')}", args.token)
-            if isinstance(raw, dict):
-                details.append(slim_commit_detail(raw))
-        except Exception as e:
-            collect_errors(errors, f"commit_detail:{sha}", e)
-        if args.sleep and i + 1 < len(to_hydrate):
-            time.sleep(args.sleep)
+        detail = fetch_commit_detail(api, owner_q, repo_q, token, str(sha), errors)
+        if detail:
+            details.append(detail)
+        if sleep_s and i + 1 < len(to_hydrate):
+            time.sleep(sleep_s)
+    return details, truncated
 
+
+def envelope(owner: str, repo: str, api: str, token: str, extra: dict[str, Any]) -> dict[str, Any]:
     payload = {
-        "repo": {"owner": args.owner, "repo": args.repo, "api_base": api},
-        "filters": {
-            "sha": args.sha or None,
-            "since": args.since or None,
-            "until": args.until or None,
-            "author": args.author or None,
-            "path": args.path or None,
-        },
-        "auth": {"token_present": bool(args.token)},
-        "collaborators": [slim_user(u) for u in collaborators if isinstance(u, dict)],
-        "contributors": [slim_user(u) for u in contributors if isinstance(u, dict)],
-        "commits": commits,
-        "commit_details": details,
-        "meta": {
-            "collaborator_count": len(collaborators),
-            "contributor_count": len(contributors),
-            "commit_count": len(commits),
-            "detail_count": len(details),
-            "collaborators_truncated": collab_truncated,
-            "commits_truncated": commits_truncated,
-            "details_truncated": details_truncated,
-            "max_pages": args.max_pages,
-            "details_limit": args.details_limit,
-        },
-        "errors": errors,
+        "repo": {"owner": owner, "repo": repo, "api_base": api},
+        "auth": {"token_present": bool(token)},
     }
+    payload.update(extra)
+    return payload
 
+
+def write_json(payload: dict[str, Any], out: str) -> None:
     text = json.dumps(payload, ensure_ascii=False, indent=2)
-    if args.out:
-        parent = os.path.dirname(os.path.abspath(args.out))
+    if out:
+        parent = os.path.dirname(os.path.abspath(out))
         if parent:
             os.makedirs(parent, exist_ok=True)
-        with open(args.out, "w", encoding="utf-8") as f:
+        with open(out, "w", encoding="utf-8") as f:
             f.write(text)
             f.write("\n")
     else:
         sys.stdout.write(text)
         sys.stdout.write("\n")
-    return 0 if not any(e["step"] in ("commits",) for e in errors) else 1
-
-
-if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except Exception as e:
-        sys.stderr.write(f"{e}\n")
-        raise SystemExit(2)

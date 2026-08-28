@@ -5,6 +5,15 @@ Base：`https://gitee.com/api/v5`
 
 Open API 文档：https://gitee.com/api/v5/swagger ，机器可读规范：https://gitee.com/api/v5/swagger_doc.json
 
+脚本与接口：
+
+| 脚本 | 调用 |
+|------|------|
+| `list_users.py` | collaborators + contributors（`type=authors`） |
+| `list_commits.py` | commits 列表 |
+| `commit_detail.py` | commits/{sha} |
+| `work_by_person.py` | 上面三类都拉，并按人分组 |
+
 ## 仓库成员
 
 `GET /repos/{owner}/{repo}/collaborators`

@@ -1,7 +1,7 @@
 # Gitee API 参考（本 skill 用到的接口）
 
 Base：`https://gitee.com/api/v5`  
-鉴权：`Authorization: Bearer <token>`，或查询参数 `access_token`。永远不要打印 token。
+鉴权：`Authorization: Bearer <token>`，或查询参数 `access_token`。永远不要打印 token。读取顺序与落地（环境变量 / `.env` / 会话级）见 [token.md](token.md)。
 
 Open API 文档：https://gitee.com/api/v5/swagger ，机器可读规范：https://gitee.com/api/v5/swagger_doc.json
 

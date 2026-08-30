@@ -3,8 +3,8 @@ name: gitee-auto
 description: >
   按用户实际要的那一件事拉取 Gitee 数据：仓库成员与贡献者、提交列表、单次 commit
   的 message/diff、或按人汇总工作。用户提到 Gitee/码云、collaborators、contributors、
-  commit 列表/详情、按人总结、周报素材时使用本 skill。不要默认把四件事一次做完。
-  不要用 GitHub API 代替 Gitee。
+  commit 列表/详情、按人总结、周报素材、Gitee 私人令牌、GITEE_ACCESS_TOKEN 时使用本
+  skill。不要默认把四件事一次做完。不要用 GitHub API 代替 Gitee。
 ---
 
 # Gitee 按需采集
@@ -25,13 +25,47 @@ description: >
 ## 开始前
 
 1. 向用户确认 `owner` 和 `repo`。可从 `https://gitee.com/{owner}/{repo}` 解析。
-2. 私有库需要环境变量 `GITEE_ACCESS_TOKEN`。公开库无令牌也可以拉 commits；**成员列表常要令牌**。
+2. 按 [Token](#token) 处理鉴权。私有库和**成员列表**缺 token 就停，不要硬跑。公开库只拉 commits 可以无 token。
 3. 列表类任务用户没给时间范围时：先问 `since` / `until` / 分支；对方坚持全量再拉，并说明分页上限。
-4. 永远不要在命令行或回复里打印 token。
+4. 永远不要在命令行或回复里打印 token。不要把 Gitee token 写入 Cursor / Claude / OpenClaw 的 LLM 配置。
 
-鉴权：`Authorization: Bearer <token>`，或查询参数 `access_token`。Base：`https://gitee.com/api/v5`（可用 `GITEE_API_BASE` 覆盖）。
+鉴权：`Authorization: Bearer <token>`。Base：`https://gitee.com/api/v5`（可用 `GITEE_API_BASE` 覆盖）。读取顺序与落地方式见 [references/token.md](references/token.md)。
 
-在 skill 目录执行脚本。`--out` 指向本次要用的 JSON。
+在 skill 目录执行脚本。`--out` 指向本次要用的 JSON。不要把 token 写在 `--token` 里；需要时在同一终端设置 `GITEE_ACCESS_TOKEN`。
+
+## Token
+
+脚本自动按顺序读：`--token` → 进程环境变量 `GITEE_ACCESS_TOKEN` → `~/.gitee-auto/env` → 本 skill 的 `.env`。不扫描 `API_KEY` / `ANTHROPIC_AUTH_TOKEN` / `ARK_*`。
+
+缺 token 且当前任务需要它时：**先让用户选落地方式，再收令牌**。不要自行决定写成环境变量或 `.env`。
+
+申请：https://gitee.com/profile/personal_access_tokens （勾选 `projects`）。
+
+**向用户请求 token 时，必须用下面这段（可微调标点，三项选择不能少、不能改成别的落地点）：**
+
+```
+本仓库需要 Gitee 私人令牌才能继续（成员列表 / 私有库几乎必填）。
+
+请先选一种落地方式，再把令牌发给我：
+
+1. 用户级环境变量 GITEE_ACCESS_TOKEN：长期有效；Windows 写入后需重启 Cursor 才对所有窗口生效
+2. 本 skill 目录 .env：只给 gitee-auto 用，已忽略 git
+3. 仅本次会话：当前终端有效，关掉即失效
+
+申请：https://gitee.com/profile/personal_access_tokens （勾选 projects）
+
+回复示例：「2」然后粘贴令牌；或「先会话级」，再发令牌。
+```
+
+收到选择后：
+
+| 用户选 | 你做 |
+|--------|------|
+| 1 环境变量 | 同一终端设置 `GITEE_ACCESS_TOKEN`（不要回显），再 `python scripts/save_token.py --target env` |
+| 2 `.env` | 同样先设环境变量，再 `python scripts/save_token.py --target dotenv` |
+| 3 会话级 | 只设当前终端的 `GITEE_ACCESS_TOKEN`，**不要**跑 `save_token.py` |
+
+只发了令牌、没选落地方式：按 **3 会话级** 完成本次请求，并再问要不要改成 1 或 2。`save_token.py` 的 stdout 只有路径和 `token_present`，把路径告诉用户即可。
 
 ## 1. 人员名单
 
@@ -116,3 +150,6 @@ python scripts/work_by_person.py --owner <owner> --repo <repo> --out work.json
 - 不要在未分页的情况下声称「全部提交」。
 - 不要把「看某个 SHA」做成完整人员报告。
 - 不要把「只要名单」顺便拉完全部 commits。
+- 不要扫描 `API_KEY` / `ANTHROPIC_AUTH_TOKEN` / 方舟 Key 当 Gitee token。
+- 缺 token 时不要自行决定落地方式；必须让用户在环境变量、`.env`、会话级里选。
+- 不要把 Gitee token 写入 Cursor / Claude / OpenClaw 的语言模型配置。

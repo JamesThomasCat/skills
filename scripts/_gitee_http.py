@@ -10,18 +10,185 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 DEFAULT_API_BASE = "https://gitee.com/api/v5"
 MAX_PER_PAGE = 100
 PATCH_CHARS = 4000
+TOKEN_ENV = "GITEE_ACCESS_TOKEN"
+SAVE_TARGETS = ("env", "dotenv", "session")
+
+
+def default_skill_root() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
+def skill_root() -> Path:
+    return default_skill_root()
+
+
+def default_user_env_path() -> Path:
+    return Path.home() / ".gitee-auto" / "env"
+
+
+def parse_env_file(path: str | Path) -> dict[str, str]:
+    result: dict[str, str] = {}
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except OSError:
+        return result
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].strip()
+        if "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()
+        val = val.strip()
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in "\"'":
+            val = val[1:-1]
+        if key:
+            result[key] = val
+    return result
+
+
+def resolve_token(
+    cli_token: str = "",
+    environ: dict[str, str] | None = None,
+    skill_root: Path | None = None,
+    user_env_path: Path | None = None,
+) -> tuple[str, str | None]:
+    """CLI > process env GITEE_ACCESS_TOKEN > ~/.gitee-auto/env > skill .env.
+
+    Never reads API_KEY / ANTHROPIC_AUTH_TOKEN / ARK_*.
+    """
+    env = environ if environ is not None else os.environ
+    root = Path(skill_root) if skill_root is not None else default_skill_root()
+    user_path = Path(user_env_path) if user_env_path is not None else default_user_env_path()
+
+    cli = (cli_token or "").strip()
+    if cli:
+        return cli, "cli"
+
+    env_val = str(env.get(TOKEN_ENV) or "").strip()
+    if env_val:
+        return env_val, "environ"
+
+    user_val = (parse_env_file(user_path).get(TOKEN_ENV) or "").strip()
+    if user_val:
+        return user_val, "user_env"
+
+    dotenv_val = (parse_env_file(root / ".env").get(TOKEN_ENV) or "").strip()
+    if dotenv_val:
+        return dotenv_val, "dotenv"
+
+    return "", None
+
+
+def _line_key(line: str) -> str | None:
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#"):
+        return None
+    if stripped.startswith("export "):
+        stripped = stripped[7:].strip()
+    if "=" not in stripped:
+        return None
+    return stripped.partition("=")[0].strip()
+
+
+def upsert_env_key(path: Path, key: str, value: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    found = False
+    out: list[str] = []
+    for line in lines:
+        if _line_key(line) == key:
+            if not found:
+                out.append(f"{key}={value}")
+                found = True
+            continue
+        out.append(line)
+    if not found:
+        out.append(f"{key}={value}")
+    text = "\n".join(out)
+    if not text.endswith("\n"):
+        text += "\n"
+    path.write_text(text, encoding="utf-8")
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
+def _write_windows_user_env(name: str, value: str) -> None:
+    import ctypes
+    import winreg
+
+    key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_SET_VALUE)
+    try:
+        winreg.SetValueEx(key, name, 0, winreg.REG_SZ, value)
+    finally:
+        winreg.CloseKey(key)
+    hwnd_broadcast = 0xFFFF
+    wm_settingchange = 0x001A
+    smto_abortifhung = 0x0002
+    ctypes.windll.user32.SendMessageTimeoutW(
+        hwnd_broadcast, wm_settingchange, 0, "Environment", smto_abortifhung, 5000, None
+    )
+
+
+def save_token(
+    target: str,
+    token: str,
+    skill_root: Path | None = None,
+    user_env_path: Path | None = None,
+    write_windows_user_env: bool = True,
+) -> dict[str, Any]:
+    cleaned = (token or "").strip()
+    if not cleaned:
+        raise ValueError("empty token")
+    kind = (target or "").strip().lower()
+    if kind not in SAVE_TARGETS:
+        raise ValueError(f"unknown target: {target}")
+    root = Path(skill_root) if skill_root is not None else default_skill_root()
+    user_path = Path(user_env_path) if user_env_path is not None else default_user_env_path()
+
+    if kind == "session":
+        return {"ok": True, "target": "session", "path": None, "token_present": True}
+
+    if kind == "dotenv":
+        path = root / ".env"
+        upsert_env_key(path, TOKEN_ENV, cleaned)
+        return {"ok": True, "target": "dotenv", "path": str(path), "token_present": True}
+
+    upsert_env_key(user_path, TOKEN_ENV, cleaned)
+    if write_windows_user_env and os.name == "nt":
+        try:
+            _write_windows_user_env(TOKEN_ENV, cleaned)
+        except OSError:
+            pass
+    return {"ok": True, "target": "env", "path": str(user_path), "token_present": True}
+
+
+def apply_token(args: Any) -> None:
+    token, source = resolve_token(cli_token=getattr(args, "token", "") or "")
+    args.token = token
+    args.token_source = source
 
 
 def add_common_args(parser) -> None:
     parser.add_argument("--owner", required=True, help="Namespace path (user/org/enterprise)")
     parser.add_argument("--repo", required=True, help="Repository path")
     parser.add_argument("--api-base", default=os.environ.get("GITEE_API_BASE", DEFAULT_API_BASE))
-    parser.add_argument("--token", default=os.environ.get("GITEE_ACCESS_TOKEN", ""))
+    parser.add_argument(
+        "--token",
+        default="",
+        help="Override token. Prefer GITEE_ACCESS_TOKEN env or files; avoid putting secrets on the CLI.",
+    )
     parser.add_argument("--out", default="", help="Write JSON here; default stdout")
 
 
@@ -250,10 +417,20 @@ def fetch_commit_details(
     return details, truncated
 
 
-def envelope(owner: str, repo: str, api: str, token: str, extra: dict[str, Any]) -> dict[str, Any]:
+def envelope(
+    owner: str,
+    repo: str,
+    api: str,
+    token: str,
+    extra: dict[str, Any],
+    token_source: str | None = None,
+) -> dict[str, Any]:
     payload = {
         "repo": {"owner": owner, "repo": repo, "api_base": api},
-        "auth": {"token_present": bool(token)},
+        "auth": {
+            "token_present": bool(token),
+            "token_source": token_source if token else None,
+        },
     }
     payload.update(extra)
     return payload

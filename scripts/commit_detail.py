@@ -19,6 +19,7 @@ def main() -> int:
         help="Commit SHA (repeat for multiple). Short prefix is OK if unambiguous.",
     )
     args = p.parse_args()
+    gitee.apply_token(args)
 
     api = args.api_base.rstrip("/")
     owner_q, repo_q = gitee.repo_path(args.owner, args.repo)
@@ -45,6 +46,7 @@ def main() -> int:
                 "meta": {"detail_count": len(details)},
                 "errors": errors,
             },
+            token_source=getattr(args, "token_source", None),
         ),
         args.out,
     )

@@ -14,6 +14,7 @@ def main() -> int:
     gitee.add_common_args(p)
     p.add_argument("--max-pages", type=int, default=50, help="Safety cap for collaborator pages")
     args = p.parse_args()
+    gitee.apply_token(args)
 
     api = args.api_base.rstrip("/")
     owner_q, repo_q = gitee.repo_path(args.owner, args.repo)
@@ -41,6 +42,7 @@ def main() -> int:
                 },
                 "errors": errors,
             },
+            token_source=getattr(args, "token_source", None),
         ),
         args.out,
     )

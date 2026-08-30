@@ -13,6 +13,7 @@ Open API 文档：https://gitee.com/api/v5/swagger ，机器可读规范：https
 | `list_commits.py` | commits 列表 |
 | `commit_detail.py` | commits/{sha} |
 | `work_by_person.py` | 上面三类都拉，并按人分组 |
+| `daily_report.py` | 组织仓库列表 + 成员/贡献者过滤 + 全部分支 commits（按日、按人） |
 
 ## 仓库成员
 
@@ -73,3 +74,20 @@ Open API 文档：https://gitee.com/api/v5/swagger ，机器可读规范：https
 - `files[].patch`
 
 单条 commit 且已知父 SHA 时，可用 `base=parent`、`head=sha` 作为详情接口的备选。
+
+## 组织仓库
+
+`GET /orgs/{org}/repos`
+
+- 查询：`type=all`（本 skill 日报默认）、`page` / `per_page`
+- 仓库路径用 `path` 或 `name`，命名空间是 `owner.login`
+
+## 分支
+
+`GET /repos/{owner}/{repo}/branches`
+
+- 分页：`page`、`per_page`
+- 返回 `name`
+
+工作日报要对每个分支带 `sha=<branch>` 调提交列表，再按 SHA 去重。
+

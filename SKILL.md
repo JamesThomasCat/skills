@@ -2,16 +2,17 @@
 name: gitee-auto
 description: >
   按用户实际要的那一件事拉取 Gitee 数据：仓库成员与贡献者、提交列表、单次 commit
-  的 message/diff、或按人汇总工作。用户提到 Gitee/码云、collaborators、contributors、
-  commit 列表/详情、按人总结、周报素材、Gitee 私人令牌、GITEE_ACCESS_TOKEN 时使用本
-  skill。不要默认把四件事一次做完。不要用 GitHub API 代替 Gitee。
+  的 message/diff、按人汇总、或工作日报。用户提到 Gitee/码云、collaborators、
+  contributors、commit 列表/详情、按人总结、周报、工作日报、testdaily、今日日报、
+  Gitee 私人令牌、GITEE_ACCESS_TOKEN 时使用本 skill。不要默认把几件事一次做完。
+  不要用 GitHub API 代替 Gitee。
 ---
 
 # Gitee 按需采集
 
 只用本 skill 附带的脚本和 Open API。不要靠记忆编造提交或文件名。
 
-先判断用户要的是下面哪一件，**只跑对应脚本**。没有明确要「按人汇总 / 周报 / 谁做了什么」时，不要跑 `work_by_person.py`。
+先判断用户要的是下面哪一件，**只跑对应脚本**。没有明确要「按人汇总 / 周报 / 谁做了什么」时，不要跑 `work_by_person.py`。用户要「工作日报 / 总结今日工作」时跑 `daily_report.py`，不要跑 `work_by_person.py`。
 
 | 用户要什么 | 脚本 | 不要做 |
 |------------|------|--------|
@@ -19,12 +20,13 @@ description: >
 | 提交列表、全部 commit | `scripts/list_commits.py` | 不要拉人员，不要逐条 hydrate diff |
 | 某个 SHA 的说明和代码改动 | `scripts/commit_detail.py --sha …` | 不要拉全员名单，不要拉仓库历史 |
 | 按人汇总、周报、谁改了什么 | `scripts/work_by_person.py` | 这才是唯一会拼人员+提交+详情的入口 |
+| 工作日报、总结 xxx 今日工作 | `scripts/daily_report.py` | 不要套按人工作长文；见下方固定样式 |
 
 接口字段见 [references/api.md](references/api.md)。
 
 ## 开始前
 
-1. 向用户确认 `owner` 和 `repo`。可从 `https://gitee.com/{owner}/{repo}` 解析。
+1. 工作日报默认组织 `testdaily`，不需要单个 `repo`。其他任务向用户确认 `owner` 和 `repo`。可从 `https://gitee.com/{owner}/{repo}` 解析。
 2. 按 [Token](#token) 处理鉴权。私有库和**成员列表**缺 token 就停，不要硬跑。公开库只拉 commits 可以无 token。
 3. 列表类任务用户没给时间范围时：先问 `since` / `until` / 分支；对方坚持全量再拉，并说明分页上限。
 4. 永远不要在命令行或回复里打印 token。不要把 Gitee token 写入 Cursor / Claude / OpenClaw 的 LLM 配置。
@@ -140,7 +142,46 @@ python scripts/work_by_person.py --owner <owner> --repo <repo> --out work.json
 | login | 姓名 | 角色/权限 |
 ```
 
-多人按提交数降序。没有 diff 的提交只根据 message 写，并注明「未拉取详情」。不要把 merge 机器人或 `Signed-off-by` 当成主要工作。
+多人按提交数降序。没有 diff 的提交只根据 message 写，并注明「未拉取详情」。不要把 merge 机器人或 `Signed-off-by` 当成主要工作。用户如果说的是「工作日报 / 总结」，改走第 5 节，不要用本节长文模板。
+
+## 5. 工作日报
+
+以下说法都走本节，不要走第 4 节：
+
+- 帮我总结 {人} 今日（{YYYY-MM-DD}）的工作日报
+- 总结 / 工作日报（且已有该人当天的提交或详情）
+
+含义（必须按此采集，不要只扫一个仓库、不要只扫默认分支）：
+
+1. 组织默认 `testdaily`（用户另给组织则用用户的）。
+2. 列出组织下仓库，只保留**贡献者或成员能匹配到该人**的仓库（login / 姓名 / 邮箱）。
+3. 每个匹配仓库拉取**全部分支**上、该人在该日（Asia/Shanghai `+08:00`）的 commit；同一 SHA 去重。
+4. 用 JSON 里的 `commits` / `commit_details` 归纳事项，禁止编造。
+
+```bash
+python scripts/daily_report.py --person <login或姓名> --date YYYY-MM-DD --out daily.json
+```
+
+上下文里已经有该人当天的提交详情、用户只说「总结」时：不要重跑全组织扫描，直接按下面样式输出。
+
+**输出必须是这个形状（标题级短语、中文顿号编号）。不要加仓库名、SHA、文件列表、范围说明：**
+
+```
+工作日报：
+1、AP Student Job Perception
+2、AP Student 去答疑前置题目列表
+3、保利威加密视频鉴权
+```
+
+- 第一行固定为 `工作日报：`
+- 同一事项的多条 commit 合并成一条
+- 不要把 merge 机器人或纯 `Signed-off-by` 当成条目
+- 当天零提交则只写：
+
+```
+工作日报：
+当天无提交
+```
 
 ## 不要做的事
 
@@ -150,6 +191,8 @@ python scripts/work_by_person.py --owner <owner> --repo <repo> --out work.json
 - 不要在未分页的情况下声称「全部提交」。
 - 不要把「看某个 SHA」做成完整人员报告。
 - 不要把「只要名单」顺便拉完全部 commits。
+- 不要把「工作日报」做成第 4 节那种按人长文。
+- 不要只查默认分支或只查一个仓库来应付 testdaily 日报。
 - 不要扫描 `API_KEY` / `ANTHROPIC_AUTH_TOKEN` / 方舟 Key 当 Gitee token。
 - 缺 token 时不要自行决定落地方式；必须让用户在环境变量、`.env`、会话级里选。
 - 不要把 Gitee token 写入 Cursor / Claude / OpenClaw 的语言模型配置。

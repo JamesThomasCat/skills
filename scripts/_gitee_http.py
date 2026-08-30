@@ -180,9 +180,7 @@ def apply_token(args: Any) -> None:
     args.token_source = source
 
 
-def add_common_args(parser) -> None:
-    parser.add_argument("--owner", required=True, help="Namespace path (user/org/enterprise)")
-    parser.add_argument("--repo", required=True, help="Repository path")
+def add_auth_args(parser) -> None:
     parser.add_argument("--api-base", default=os.environ.get("GITEE_API_BASE", DEFAULT_API_BASE))
     parser.add_argument(
         "--token",
@@ -190,6 +188,12 @@ def add_common_args(parser) -> None:
         help="Override token. Prefer GITEE_ACCESS_TOKEN env or files; avoid putting secrets on the CLI.",
     )
     parser.add_argument("--out", default="", help="Write JSON here; default stdout")
+
+
+def add_common_args(parser) -> None:
+    parser.add_argument("--owner", required=True, help="Namespace path (user/org/enterprise)")
+    parser.add_argument("--repo", required=True, help="Repository path")
+    add_auth_args(parser)
 
 
 def repo_path(owner: str, repo: str) -> tuple[str, str]:
@@ -327,6 +331,92 @@ def slim_commit_detail(item: dict[str, Any]) -> dict[str, Any]:
 
 def collect_errors(errors: list[dict[str, str]], step: str, err: Exception) -> None:
     errors.append({"step": step, "error": str(err)})
+
+
+def day_bounds_iso(date_s: str) -> tuple[str, str]:
+    """[start, end) for a calendar day in Asia/Shanghai (+08:00)."""
+    from datetime import datetime, timedelta, timezone
+
+    day = datetime.strptime(date_s.strip(), "%Y-%m-%d").date()
+    tz = timezone(timedelta(hours=8))
+    start = datetime(day.year, day.month, day.day, tzinfo=tz)
+    end = start + timedelta(days=1)
+    return start.isoformat(), end.isoformat()
+
+
+def person_matches(needle: str, *fields: Any) -> bool:
+    n = (needle or "").strip().casefold()
+    if not n:
+        return False
+    for raw in fields:
+        if raw is None:
+            continue
+        v = str(raw).strip().casefold()
+        if not v:
+            continue
+        if v == n:
+            return True
+        if len(n) >= 2 and (n in v or (len(v) >= 2 and v in n)):
+            return True
+        if "@" in v and v.split("@", 1)[0] == n:
+            return True
+    return False
+
+
+def commit_matches_person(needle: str, commit: dict[str, Any]) -> bool:
+    return person_matches(
+        needle,
+        commit.get("author_login"),
+        commit.get("author_name"),
+        commit.get("author_email"),
+        commit.get("committer_login"),
+    )
+
+
+def user_matches_person(needle: str, user: dict[str, Any]) -> bool:
+    return person_matches(needle, user.get("login"), user.get("name"), user.get("email"))
+
+
+def fetch_org_repos(
+    api: str, org: str, token: str, max_pages: int, errors: list[dict[str, str]]
+) -> tuple[list[dict[str, Any]], bool]:
+    org_q = urllib.parse.quote(org, safe="")
+    try:
+        raw, truncated = paginate(
+            api, f"/orgs/{org_q}/repos", token, {"type": "all"}, max_pages
+        )
+        repos: list[dict[str, Any]] = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            owner = item.get("owner") if isinstance(item.get("owner"), dict) else {}
+            name = item.get("path") or item.get("name") or ""
+            repos.append(
+                {
+                    "name": name,
+                    "full_name": item.get("full_name") or f"{owner.get('login') or org}/{name}",
+                    "owner": owner.get("login") or org,
+                    "html_url": item.get("html_url"),
+                    "private": item.get("private"),
+                    "default_branch": item.get("default_branch"),
+                }
+            )
+        return repos, truncated
+    except Exception as e:
+        collect_errors(errors, "org_repos", e)
+        return [], False
+
+
+def fetch_branches(
+    api: str, owner_q: str, repo_q: str, token: str, max_pages: int, errors: list[dict[str, str]]
+) -> tuple[list[str], bool]:
+    try:
+        raw, truncated = paginate(api, f"/repos/{owner_q}/{repo_q}/branches", token, {}, max_pages)
+        names = [str(b.get("name")) for b in raw if isinstance(b, dict) and b.get("name")]
+        return names, truncated
+    except Exception as e:
+        collect_errors(errors, "branches", e)
+        return [], False
 
 
 def fetch_collaborators(

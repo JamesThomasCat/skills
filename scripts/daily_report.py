@@ -26,20 +26,30 @@ def _repo_has_person(
     person: str,
     max_pages: int,
     errors: list[dict[str, str]],
-) -> tuple[bool, str | None]:
+) -> tuple[bool, str | None, list[dict[str, Any]]]:
     owner_q, repo_q = gitee.repo_path(owner, repo)
     label = f"{owner}/{repo}"
     start = len(errors)
     collaborators, _ = gitee.fetch_collaborators(api, owner_q, repo_q, token, max_pages, errors)
     _scope_new_errors(errors, start, label)
-    if any(gitee.user_matches_person(person, u) for u in collaborators):
-        return True, "collaborator"
     start = len(errors)
     contributors = gitee.fetch_contributors(api, owner_q, repo_q, token, errors)
     _scope_new_errors(errors, start, label)
-    if any(gitee.user_matches_person(person, u) for u in contributors):
-        return True, "contributor"
-    return False, None
+    matched: list[dict[str, Any]] = []
+    people: list[dict[str, Any]] = []
+    how: str | None = None
+    for u in collaborators:
+        people.append(u)
+        if gitee.user_matches_person(person, u):
+            matched.append(u)
+            how = "collaborator"
+    for u in contributors:
+        people.append(u)
+        if gitee.user_matches_person(person, u):
+            matched.append(u)
+            if how is None:
+                how = "contributor"
+    return bool(matched), how, people
 
 
 def _collect_repo_commits(
@@ -47,7 +57,7 @@ def _collect_repo_commits(
     owner: str,
     repo: str,
     token: str,
-    person: str,
+    needles: list[str],
     since: str,
     until: str,
     max_pages: int,
@@ -76,7 +86,7 @@ def _collect_repo_commits(
         if c_truncated:
             truncated = True
         for c in commits:
-            if not gitee.commit_matches_person(person, c):
+            if not gitee.commit_matches_any_person(needles, c):
                 continue
             sha = c.get("sha")
             if not sha:
@@ -127,25 +137,30 @@ def main() -> int:
     matched_repos: list[dict[str, Any]] = []
     all_by_sha: dict[str, dict[str, Any]] = {}
     any_truncated = repos_truncated
+    person_needles: list[str] = gitee.identity_needles_for_person(args.person, [])
 
     for i, repo in enumerate(repos):
         owner = repo.get("owner") or args.org
         name = repo.get("name") or ""
         if not name:
             continue
-        hit, how = _repo_has_person(
+        hit, how, people = _repo_has_person(
             api, owner, name, args.token, args.person, args.max_pages, errors
         )
         if not hit:
             if args.sleep and i + 1 < len(repos):
                 time.sleep(args.sleep)
             continue
+        needles = gitee.identity_needles_for_person(args.person, people)
+        for n in needles:
+            if n not in person_needles:
+                person_needles.append(n)
         by_sha, branches, truncated = _collect_repo_commits(
             api,
             owner,
             name,
             args.token,
-            args.person,
+            needles,
             since,
             until,
             args.max_pages,
@@ -205,6 +220,7 @@ def main() -> int:
             "org": args.org,
             "namespace_type": namespace_type,
             "person": args.person,
+            "person_needles": person_needles,
             "date": args.date,
             "since": since,
             "until": until,

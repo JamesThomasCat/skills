@@ -377,6 +377,51 @@ def user_matches_person(needle: str, user: dict[str, Any]) -> bool:
     return person_matches(needle, user.get("login"), user.get("name"), user.get("email"))
 
 
+def identity_needles_for_person(person: str, users: list[dict[str, Any]]) -> list[str]:
+    """Needles for commit matching: the query string plus matched users' login/name/email.
+
+    Git author.name can change while author.email stays the same. Matching only the
+    query name would drop those commits.
+    """
+    needles: list[str] = []
+    seen: set[str] = set()
+
+    def add(raw: Any) -> None:
+        s = str(raw).strip() if raw is not None else ""
+        if not s:
+            return
+        key = s.casefold()
+        if key in seen:
+            return
+        seen.add(key)
+        needles.append(s)
+
+    add(person)
+    matched = [u for u in users if isinstance(u, dict) and user_matches_person(person, u)]
+    emails: set[str] = set()
+    for user in matched:
+        add(user.get("login"))
+        add(user.get("name"))
+        add(user.get("email"))
+        em = str(user.get("email") or "").strip().casefold()
+        if em:
+            emails.add(em)
+    for user in users:
+        if not isinstance(user, dict):
+            continue
+        em = str(user.get("email") or "").strip().casefold()
+        if not em or em not in emails:
+            continue
+        add(user.get("login"))
+        add(user.get("name"))
+        add(user.get("email"))
+    return needles
+
+
+def commit_matches_any_person(needles: list[str], commit: dict[str, Any]) -> bool:
+    return any(commit_matches_person(n, commit) for n in needles if n)
+
+
 def _is_http_status(err: Exception, code: int) -> bool:
     return str(err).startswith(f"HTTP {code} ")
 

@@ -126,5 +126,52 @@ class FetchNamespaceReposTest(unittest.TestCase):
         self.assertEqual(errors, [])
 
 
+class PersonIdentityTest(unittest.TestCase):
+    """Git author name can differ from Gitee contributor name when email is shared."""
+
+    CONTRIBUTOR = {
+        "login": None,
+        "name": "meiyanxin",
+        "email": "shared@example.com",
+    }
+    COMMIT = {
+        "author_login": None,
+        "author_name": "thoamsmay",
+        "author_email": "shared@example.com",
+        "committer_login": None,
+    }
+    OTHER_COMMIT = {
+        "author_login": None,
+        "author_name": "someone-else",
+        "author_email": "other@example.com",
+        "committer_login": None,
+    }
+
+    def test_name_needle_does_not_match_renamed_git_author(self):
+        self.assertTrue(gitee.user_matches_person("meiyanxin", self.CONTRIBUTOR))
+        self.assertFalse(gitee.commit_matches_person("meiyanxin", self.COMMIT))
+
+    def test_needles_from_matched_user_include_email(self):
+        needles = gitee.identity_needles_for_person("meiyanxin", [self.CONTRIBUTOR])
+        folded = {n.casefold() for n in needles}
+        self.assertIn("meiyanxin", folded)
+        self.assertIn("shared@example.com", folded)
+
+    def test_commit_matches_via_contributor_email_alias(self):
+        needles = gitee.identity_needles_for_person("meiyanxin", [self.CONTRIBUTOR])
+        self.assertTrue(gitee.commit_matches_any_person(needles, self.COMMIT))
+        self.assertFalse(gitee.commit_matches_any_person(needles, self.OTHER_COMMIT))
+
+    def test_shared_email_adds_renamed_git_author(self):
+        users = [
+            self.CONTRIBUTOR,
+            {"login": None, "name": "thoamsmay", "email": "shared@example.com"},
+        ]
+        needles = gitee.identity_needles_for_person("meiyanxin", users)
+        folded = {n.casefold() for n in needles}
+        self.assertIn("thoamsmay", folded)
+        self.assertTrue(gitee.commit_matches_any_person(needles, self.COMMIT))
+
+
 if __name__ == "__main__":
     unittest.main()

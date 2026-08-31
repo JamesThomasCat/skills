@@ -81,6 +81,7 @@ Open API 文档：https://gitee.com/api/v5/swagger ，机器可读规范：https
 
 - 查询：`type=all`（本 skill 日报默认）、`page` / `per_page`
 - 仓库路径用 `path` 或 `name`，命名空间是 `owner.login`
+- 日报按人过滤时：先用 login / 姓名 / 邮箱对上成员或贡献者，再用这些身份字段（含邮箱）去对当天 commit。Git `author.name` 可以和 Gitee 显示名不同，只要邮箱相同就算同一个人。
 - `testdaily` 是企业空间，日报**先走这条**，不要先打组织接口
 
 ## 组织仓库

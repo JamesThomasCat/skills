@@ -10,9 +10,7 @@ description: >
 
 # Gitee 按需采集
 
-只用本 skill 附带的脚本和 Open API。不要靠记忆编造提交或文件名。
-
-先判断用户要的是下面哪一件，**只跑对应脚本**。没有明确要「按人汇总 / 周报 / 谁做了什么」时，不要跑 `work_by_person.py`。用户要「工作日报 / 总结今日工作」时跑 `daily_report.py`，不要跑 `work_by_person.py`。
+不要靠记忆编造提交或文件名。先判断用户要的是下面哪一件，**只跑对应入口脚本**。没有明确要「按人汇总 / 周报 / 谁做了什么」时，不要跑 `work_by_person.py`。用户要「工作日报 / 总结今日工作」时跑 `daily_report.py`，不要跑 `work_by_person.py`。
 
 | 用户要什么 | 脚本 | 不要做 |
 |------------|------|--------|
@@ -22,7 +20,9 @@ description: >
 | 按人汇总、周报、谁改了什么 | `scripts/work_by_person.py` | 这才是唯一会拼人员+提交+详情的入口 |
 | 工作日报、总结 xxx 今日工作 | `scripts/daily_report.py` | 不要套按人工作长文；见下方固定样式 |
 
-接口字段见 [references/api.md](references/api.md)。
+接口字段见 [references/api.md](references/api.md)。上表「脚本」列才是入口。`scripts/_gitee_http.py` 不是入口，禁止 `import` 或直接运行。表里没有的能力（例如 PR 列表）就停下，说明缺口。
+
+Open API 只给这些入口脚本用。不要你自己 curl / urllib / WebFetch 调 `gitee.com/api/v5`。
 
 ## 源文件只读
 
@@ -36,16 +36,25 @@ description: >
 | `--out` 的本次 JSON（不要覆盖上面那些源文件） | 新的 `.py` / `.md`、临时解析脚本、API 摘要、调试笔记 |
 | 用户项目目录或系统临时目录里的产出 | 把 skill「补全 / 优化 / 修一下就能跑」 |
 
-脚本报错或缺能力：把错误或缺口告诉用户，停下来。不要改脚本凑任务，不要扩 skill。
+入口脚本非 0 退出或抛异常：把命令和错误原文交给用户，**停止**。缺表内入口：同样停止。下列都不算完成任务：
+
+- 改入口脚本、删报错、或「修一下就能跑」
+- `import _gitee_http` / 直接跑 `_gitee_http.py`
+- 在任意目录（含系统临时目录）写 fetcher 再调 `gitee.com/api/v5`
+- WebFetch / curl / urllib 自己拼接口
 
 **例外（必须可观察）：** 用户明确说了「改这个 skill / 修脚本 / 更新说明书」。没这句话就不是例外。
 
 | 借口 | 实际 |
 |------|------|
 | 脚本报错，改一下就能交差 | 报告错误；改脚本 = 维护 skill |
+| 入口挂了，改调 `_gitee_http` | 仍是绕过入口；报告错误并停止 |
+| 说明书提到 Open API，我直接请求 | Open API 只给入口脚本；你只跑入口 |
+| 临时脚本写在 TEMP，不是改 skill | 仍是凑任务；停下来 |
+| 用户只要结果，没有 PR 脚本我就自己拉 | 缺入口 = 缺口；说明没有这项 |
 | 当前工作区就是 skill 仓库 | 使用仍只读；工作区位置不是许可 |
 | 缺功能，先补个脚本/段落 | 先问用户，未经允许不扩 |
-| 写个 `.tmp-*.py` / 摘要方便跑 | 不要落在 skill 目录 |
+| 写个 `.tmp-*.py` / 摘要方便跑 | 不要落在 skill 目录，也不要用它交差 |
 | 我是在优化，不是破坏 | 未经允许的改动就是越权 |
 
 ## 开始前
@@ -54,7 +63,7 @@ description: >
 2. 按 [Token](#token) 处理鉴权。私有库和**成员列表**缺 token 就停，不要硬跑。公开库只拉 commits 可以无 token。
 3. 列表类任务用户没给时间范围时：先问 `since` / `until` / 分支；对方坚持全量再拉，并说明分页上限。
 4. 永远不要在命令行或回复里打印 token。不要把 Gitee token 写入 Cursor / Claude / OpenClaw 的 LLM 配置。
-5. 按 [源文件只读](#源文件只读) 执行：跑脚本，不要改 skill。
+5. 按 [源文件只读](#源文件只读) 执行：只跑入口脚本；失败或缺口就停，不要改 skill，不要自己发 HTTP。
 
 鉴权：`Authorization: Bearer <token>`。Base：`https://gitee.com/api/v5`（可用 `GITEE_API_BASE` 覆盖）。读取顺序与落地方式见 [references/token.md](references/token.md)。
 
@@ -225,3 +234,7 @@ python scripts/daily_report.py --person <login或姓名> --date YYYY-MM-DD --out
 - 不要在 skill 目录新增 `.py` / `.md` / 临时脚本或摘要；脚本失败也不许改脚本来绕。
 - 不要因为当前工作区是本 skill 仓库，就把「使用」当成「可以改源文件」。
 - 用户没说「改这个 skill / 修脚本 / 更新说明书」时，不要扩写、重构或「优化」本 skill。
+- 不要自己请求 `gitee.com/api/v5`（含 WebFetch / curl / urllib）；只跑上表入口脚本。
+- 不要 `import` 或直接运行 `_gitee_http.py` 来代替入口脚本。
+- 入口脚本失败后，不要在临时目录写 fetcher 交差。
+- 表里没有的能力（如 PR 列表）不要自己补接口。

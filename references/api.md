@@ -5,7 +5,7 @@ Base：`https://gitee.com/api/v5`
 
 Open API 文档：https://gitee.com/api/v5/swagger ，机器可读规范：https://gitee.com/api/v5/swagger_doc.json
 
-脚本与接口：
+脚本与接口（只跑左列入口；不要按右列路径自己发 HTTP。`_gitee_http.py` 不是入口）：
 
 | 脚本 | 调用 |
 |------|------|

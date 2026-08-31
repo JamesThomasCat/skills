@@ -13,7 +13,7 @@ Open API 文档：https://gitee.com/api/v5/swagger ，机器可读规范：https
 | `list_commits.py` | commits 列表 |
 | `commit_detail.py` | commits/{sha} |
 | `work_by_person.py` | 上面三类都拉，并按人分组 |
-| `daily_report.py` | 组织仓库列表 + 成员/贡献者过滤 + 全部分支 commits（按日、按人） |
+| `daily_report.py` | 企业仓库列表（404 才回退组织）+ 成员/贡献者过滤 + 全部分支 commits（按日、按人） |
 
 ## 仓库成员
 
@@ -75,12 +75,21 @@ Open API 文档：https://gitee.com/api/v5/swagger ，机器可读规范：https
 
 单条 commit 且已知父 SHA 时，可用 `base=parent`、`head=sha` 作为详情接口的备选。
 
+## 企业仓库（工作日报默认）
+
+`GET /enterprises/{enterprise}/repos`
+
+- 查询：`type=all`（本 skill 日报默认）、`page` / `per_page`
+- 仓库路径用 `path` 或 `name`，命名空间是 `owner.login`
+- `testdaily` 是企业空间，日报**先走这条**，不要先打组织接口
+
 ## 组织仓库
 
 `GET /orgs/{org}/repos`
 
-- 查询：`type=all`（本 skill 日报默认）、`page` / `per_page`
-- 仓库路径用 `path` 或 `name`，命名空间是 `owner.login`
+- 查询：`type=all`、`page` / `per_page`
+- 仅当企业仓库接口 **HTTP 404**（该 path 不是企业）时，`daily_report.py` 才回退到这里
+- 401/403 等鉴权错误不回退
 
 ## 分支
 

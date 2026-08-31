@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collect one person's commits for a calendar day across an org (default testdaily)."""
+"""Collect one person's commits for a calendar day across a namespace (default testdaily enterprise)."""
 
 from __future__ import annotations
 
@@ -96,9 +96,19 @@ def _collect_repo_commits(
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="Daily commits for one person across an org")
+    p = argparse.ArgumentParser(description="Daily commits for one person across an enterprise or org")
     gitee.add_auth_args(p)
-    p.add_argument("--org", default=DEFAULT_ORG, help="Organization namespace (default testdaily)")
+    p.add_argument(
+        "--org",
+        default=DEFAULT_ORG,
+        help="Enterprise or organization path (default testdaily, an enterprise)",
+    )
+    p.add_argument(
+        "--namespace-type",
+        choices=("auto", "enterprise", "org"),
+        default="auto",
+        help="auto tries enterprise first, then org only on HTTP 404",
+    )
     p.add_argument("--person", required=True, help="Gitee login, name, or email")
     p.add_argument("--date", required=True, help="Calendar day YYYY-MM-DD (Asia/Shanghai)")
     p.add_argument("--details-limit", type=int, default=20, help="Hydrate this many unique SHAs with diffs")
@@ -110,7 +120,9 @@ def main() -> int:
     api = args.api_base.rstrip("/")
     since, until = gitee.day_bounds_iso(args.date)
     errors: list[dict[str, str]] = []
-    repos, repos_truncated = gitee.fetch_org_repos(api, args.org, args.token, args.max_pages, errors)
+    repos, repos_truncated, namespace_type = gitee.fetch_namespace_repos(
+        api, args.org, args.token, args.max_pages, errors, namespace_type=args.namespace_type
+    )
 
     matched_repos: list[dict[str, Any]] = []
     all_by_sha: dict[str, dict[str, Any]] = {}
@@ -191,6 +203,7 @@ def main() -> int:
     gitee.write_json(
         {
             "org": args.org,
+            "namespace_type": namespace_type,
             "person": args.person,
             "date": args.date,
             "since": since,
@@ -217,7 +230,7 @@ def main() -> int:
         },
         args.out,
     )
-    return 0 if not any(e["step"] == "org_repos" for e in errors) else 1
+    return 0 if namespace_type else 1
 
 
 if __name__ == "__main__":

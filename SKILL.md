@@ -18,9 +18,9 @@ description: >
 | 提交列表、全部 commit | `scripts/list_commits.py` | 不要拉人员，不要逐条 hydrate diff |
 | 某个 SHA 的说明和代码改动 | `scripts/commit_detail.py --sha …` | 不要拉全员名单，不要拉仓库历史 |
 | 按人汇总、周报、谁改了什么 | `scripts/work_by_person.py` | 这才是唯一会拼人员+提交+详情的入口 |
-| 工作日报、总结 xxx 今日工作 | `scripts/daily_report.py` | 不要套按人工作长文；见下方固定样式 |
+| 工作日报、总结 xxx 今日工作 | `scripts/daily_report.py` | 不要套按人工作长文；不要先调组织接口再自己改调企业接口；见下方固定样式 |
 
-接口字段见 [references/api.md](references/api.md)。上表「脚本」列才是入口。`scripts/_gitee_http.py` 不是入口，禁止 `import` 或直接运行。表里没有的能力（例如 PR 列表）就停下，说明缺口。
+接口字段见 [references/api.md](references/api.md)。上表「脚本」列才是入口。`scripts/_gitee_http.py` 和 `scripts/test_gitee_http.py` 不是入口，禁止 `import` 或直接运行。表里没有的能力（例如 PR 列表）就停下，说明缺口。
 
 Open API 只给这些入口脚本用。不要你自己 curl / urllib / WebFetch 调 `gitee.com/api/v5`。
 
@@ -49,6 +49,8 @@ Open API 只给这些入口脚本用。不要你自己 curl / urllib / WebFetch 
 |------|------|
 | 脚本报错，改一下就能交差 | 报告错误；改脚本 = 维护 skill |
 | 入口挂了，改调 `_gitee_http` | 仍是绕过入口；报告错误并停止 |
+| 组织仓库 404，我改调企业 API | 日报脚本已先走企业、仅 404 才回退组织；你只跑入口 |
+| 先探 testdaily 命名空间类型更稳妥 | 探了就会把 404 说给用户；禁止 |
 | 说明书提到 Open API，我直接请求 | Open API 只给入口脚本；你只跑入口 |
 | 临时脚本写在 TEMP，不是改 skill | 仍是凑任务；停下来 |
 | 用户只要结果，没有 PR 脚本我就自己拉 | 缺入口 = 缺口；说明没有这项 |
@@ -59,7 +61,7 @@ Open API 只给这些入口脚本用。不要你自己 curl / urllib / WebFetch 
 
 ## 开始前
 
-1. 工作日报默认组织 `testdaily`，不需要单个 `repo`。其他任务向用户确认 `owner` 和 `repo`。可从 `https://gitee.com/{owner}/{repo}` 解析。
+1. 工作日报默认**企业空间** `testdaily`（不是社区组织），不需要单个 `repo`。其他任务向用户确认 `owner` 和 `repo`。可从 `https://gitee.com/{owner}/{repo}` 解析。
 2. 按 [Token](#token) 处理鉴权。私有库和**成员列表**缺 token 就停，不要硬跑。公开库只拉 commits 可以无 token。
 3. 列表类任务用户没给时间范围时：先问 `since` / `until` / 分支；对方坚持全量再拉，并说明分页上限。
 4. 永远不要在命令行或回复里打印 token。不要把 Gitee token 写入 Cursor / Claude / OpenClaw 的 LLM 配置。
@@ -75,7 +77,7 @@ Open API 只给这些入口脚本用。不要你自己 curl / urllib / WebFetch 
 
 缺 token 且当前任务需要它时：**先让用户选落地方式，再收令牌**。不要自行决定写成环境变量或 `.env`。
 
-申请：https://gitee.com/profile/personal_access_tokens （勾选 `projects`）。
+申请：https://gitee.com/profile/personal_access_tokens （勾选 `projects`；企业空间日报再勾选 `enterprise`）。
 
 **向用户请求 token 时，必须用下面这段（可微调标点，三项选择不能少、不能改成别的落地点）：**
 
@@ -88,7 +90,7 @@ Open API 只给这些入口脚本用。不要你自己 curl / urllib / WebFetch 
 2. 本 skill 目录 .env：只给 gitee-auto 用，已忽略 git
 3. 仅本次会话：当前终端有效，关掉即失效
 
-申请：https://gitee.com/profile/personal_access_tokens （勾选 projects）
+申请：https://gitee.com/profile/personal_access_tokens （勾选 projects；企业空间日报再勾选 enterprise）
 
 回复示例：「2」然后粘贴令牌；或「先会话级」，再发令牌。
 ```
@@ -187,16 +189,18 @@ python scripts/work_by_person.py --owner <owner> --repo <repo> --out work.json
 
 含义（必须按此采集，不要只扫一个仓库、不要只扫默认分支）：
 
-1. 组织默认 `testdaily`（用户另给组织则用用户的）。
-2. 列出组织下仓库，只保留**贡献者或成员能匹配到该人**的仓库（login / 姓名 / 邮箱）。
+1. 企业空间默认 `testdaily`（用户另给空间 path 则用用户的）。`testdaily` 是企业，不是社区组织。
+2. 列出该空间下仓库，只保留**贡献者或成员能匹配到该人**的仓库（login / 姓名 / 邮箱）。
 3. 每个匹配仓库拉取**全部分支**上、该人在该日（Asia/Shanghai `+08:00`）的 commit；同一 SHA 去重。
 4. 用 JSON 里的 `commits` / `commit_details` 归纳事项，禁止编造。
+
+`daily_report.py` 会先请求 `GET /enterprises/{name}/repos`，**仅当该接口 HTTP 404** 时才回退 `GET /orgs/{name}/repos`。不要你先调组织接口、把 404 说给用户、再自己改调企业 API。
 
 ```bash
 python scripts/daily_report.py --person <login或姓名> --date YYYY-MM-DD --out daily.json
 ```
 
-上下文里已经有该人当天的提交详情、用户只说「总结」时：不要重跑全组织扫描，直接按下面样式输出。
+上下文里已经有该人当天的提交详情、用户只说「总结」时：不要重跑全空间扫描，直接按下面样式输出。
 
 **输出必须是这个形状（标题级短语、中文顿号编号）。不要加仓库名、SHA、文件列表、范围说明：**
 
@@ -227,6 +231,7 @@ python scripts/daily_report.py --person <login或姓名> --date YYYY-MM-DD --out
 - 不要把「只要名单」顺便拉完全部 commits。
 - 不要把「工作日报」做成第 4 节那种按人长文。
 - 不要只查默认分支或只查一个仓库来应付 testdaily 日报。
+- 不要先请求 `/orgs/testdaily/repos`（或任何 `/orgs/{name}/repos`）再「查命名空间类型」或改调 `/enterprises/{name}/repos`。testdaily 是企业空间；只跑 `daily_report.py`。
 - 不要扫描 `API_KEY` / `ANTHROPIC_AUTH_TOKEN` / 方舟 Key 当 Gitee token。
 - 缺 token 时不要自行决定落地方式；必须让用户在环境变量、`.env`、会话级里选。
 - 不要把 Gitee token 写入 Cursor / Claude / OpenClaw 的语言模型配置。

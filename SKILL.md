@@ -24,12 +24,37 @@ description: >
 
 接口字段见 [references/api.md](references/api.md)。
 
+## 源文件只读
+
+**使用本 skill ≠ 维护本 skill。** 读说明书、跑现成脚本、把结果交给用户。不要改源文件，也不要在 skill 目录里「顺便」加文件。
+
+源文件指：`SKILL.md`、`scripts/` 下任何 `.py`、`references/`、`.gitignore`。当前工作区即使就是本 skill 仓库，这条仍然成立。
+
+| 可以写 | 不可以写 |
+|--------|----------|
+| 用户选 1/2 之后，仅通过 `save_token.py` 写 `~/.gitee-auto/env` 或本目录 `.env` | `SKILL.md`、`scripts/*.py`、`references/`、`.gitignore` |
+| `--out` 的本次 JSON（不要覆盖上面那些源文件） | 新的 `.py` / `.md`、临时解析脚本、API 摘要、调试笔记 |
+| 用户项目目录或系统临时目录里的产出 | 把 skill「补全 / 优化 / 修一下就能跑」 |
+
+脚本报错或缺能力：把错误或缺口告诉用户，停下来。不要改脚本凑任务，不要扩 skill。
+
+**例外（必须可观察）：** 用户明确说了「改这个 skill / 修脚本 / 更新说明书」。没这句话就不是例外。
+
+| 借口 | 实际 |
+|------|------|
+| 脚本报错，改一下就能交差 | 报告错误；改脚本 = 维护 skill |
+| 当前工作区就是 skill 仓库 | 使用仍只读；工作区位置不是许可 |
+| 缺功能，先补个脚本/段落 | 先问用户，未经允许不扩 |
+| 写个 `.tmp-*.py` / 摘要方便跑 | 不要落在 skill 目录 |
+| 我是在优化，不是破坏 | 未经允许的改动就是越权 |
+
 ## 开始前
 
 1. 工作日报默认组织 `testdaily`，不需要单个 `repo`。其他任务向用户确认 `owner` 和 `repo`。可从 `https://gitee.com/{owner}/{repo}` 解析。
 2. 按 [Token](#token) 处理鉴权。私有库和**成员列表**缺 token 就停，不要硬跑。公开库只拉 commits 可以无 token。
 3. 列表类任务用户没给时间范围时：先问 `since` / `until` / 分支；对方坚持全量再拉，并说明分页上限。
 4. 永远不要在命令行或回复里打印 token。不要把 Gitee token 写入 Cursor / Claude / OpenClaw 的 LLM 配置。
+5. 按 [源文件只读](#源文件只读) 执行：跑脚本，不要改 skill。
 
 鉴权：`Authorization: Bearer <token>`。Base：`https://gitee.com/api/v5`（可用 `GITEE_API_BASE` 覆盖）。读取顺序与落地方式见 [references/token.md](references/token.md)。
 
@@ -196,3 +221,7 @@ python scripts/daily_report.py --person <login或姓名> --date YYYY-MM-DD --out
 - 不要扫描 `API_KEY` / `ANTHROPIC_AUTH_TOKEN` / 方舟 Key 当 Gitee token。
 - 缺 token 时不要自行决定落地方式；必须让用户在环境变量、`.env`、会话级里选。
 - 不要把 Gitee token 写入 Cursor / Claude / OpenClaw 的语言模型配置。
+- 不要修改本 skill 源文件（`SKILL.md`、`scripts/`、`references/`、`.gitignore`）。
+- 不要在 skill 目录新增 `.py` / `.md` / 临时脚本或摘要；脚本失败也不许改脚本来绕。
+- 不要因为当前工作区是本 skill 仓库，就把「使用」当成「可以改源文件」。
+- 用户没说「改这个 skill / 修脚本 / 更新说明书」时，不要扩写、重构或「优化」本 skill。

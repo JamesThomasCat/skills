@@ -28,6 +28,6 @@ python scripts/save_token.py --target dotenv
 | `dotenv` | `<skill>/.env`（gitignore） | 只给本 skill |
 | `session` | 无 | 当前终端 |
 
-文件权限在 POSIX 上为 `0600`。不要写入 `~/.claude/settings.json` 或 OpenClaw 的模型 Key。
+文件权限在 POSIX 上为 `0600`。不要写入 `~/.claude/settings.json` 或 OpenClaw 的模型 Key。除用户选中的落地文件外，不要改本 skill 源文件（见 `SKILL.md`「源文件只读」）。
 
 向用户要令牌时的话术见 `SKILL.md` 的 Token 一节，三项选择必须原样给出。

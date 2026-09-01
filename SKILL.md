@@ -50,6 +50,7 @@ Open API 只给这些入口脚本用。不要你自己 curl / urllib / WebFetch 
 | 脚本报错，改一下就能交差 | 报告错误；改脚本 = 维护 skill |
 | 入口挂了，改调 `_gitee_http` | 仍是绕过入口；报告错误并停止 |
 | 组织仓库 404，我改调企业 API | 日报脚本已先走企业、仅 404 才回退组织；你只跑入口 |
+| 企业仓 owner.login 是个人，我改调 testdaily | 脚本已把企业仓后续 `/repos` 的 owner 写成企业 path；你只跑入口 |
 | 先探 testdaily 命名空间类型更稳妥 | 探了就会把 404 说给用户；禁止 |
 | Git 作者改名了，我按邮箱重新采集 | 脚本已用成员/贡献者邮箱对齐提交；只跑一次入口 |
 | 说明书提到 Open API，我直接请求 | Open API 只给入口脚本；你只跑入口 |
@@ -195,7 +196,7 @@ python scripts/work_by_person.py --owner <owner> --repo <repo> --out work.json
 3. 每个匹配仓库拉取**全部分支**上、该人在该日（Asia/Shanghai `+08:00`）的 commit；同一 SHA 去重。提交过滤要用成员/贡献者上的 login、姓名、**邮箱**，不要只拿用户说的那个名字去对 `commit.author.name`。
 4. 用 JSON 里的 `commits` / `commit_details` 归纳事项，禁止编造。
 
-`daily_report.py` 会先请求 `GET /enterprises/{name}/repos`，**仅当该接口 HTTP 404** 时才回退 `GET /orgs/{name}/repos`。不要你先调组织接口、把 404 说给用户、再自己改调企业 API。Git 作者名和查询名不一致时，脚本会用已匹配身份的邮箱对齐，不要你先报「按姓名没匹配上」再按邮箱重跑一遍。
+`daily_report.py` 会先请求 `GET /enterprises/{name}/repos`，**仅当该接口 HTTP 404** 时才回退 `GET /orgs/{name}/repos`。不要你先调组织接口、把 404 说给用户、再自己改调企业 API。企业列表里 `owner.login` 常是创建者（例如 `cuizhaoy`），后续 `/repos/{owner}/{repo}` 一律用企业 path（默认 `testdaily`），不要你改成个人 login 或自己重打接口。Git 作者名和查询名不一致时，脚本会用已匹配身份的邮箱对齐，不要你先报「按姓名没匹配上」再按邮箱重跑一遍。
 
 ```bash
 python scripts/daily_report.py --person <login或姓名> --date YYYY-MM-DD --out daily.json

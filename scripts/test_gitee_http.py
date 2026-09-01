@@ -18,6 +18,17 @@ ENTERPRISE_REPO = {
     "default_branch": "master",
 }
 
+# Gitee enterprise list often returns the creator as owner.login, not the enterprise path.
+ENTERPRISE_REPO_CREATOR_OWNER = {
+    "path": "app",
+    "name": "app",
+    "full_name": "cuizhaoy/app",
+    "owner": {"login": "cuizhaoy"},
+    "html_url": "https://gitee.com/testdaily/app",
+    "private": True,
+    "default_branch": "master",
+}
+
 ORG_REPO = {
     "path": "demo",
     "name": "demo",
@@ -124,6 +135,47 @@ class FetchNamespaceReposTest(unittest.TestCase):
         self.assertEqual(kind, "org")
         self.assertEqual(calls, ["/orgs/someorg/repos"])
         self.assertEqual(errors, [])
+
+    def test_enterprise_repo_owner_is_enterprise_path_not_creator_login(self):
+        def fake_paginate(api, path, token, query, max_pages):
+            if path == "/enterprises/testdaily/repos":
+                return [ENTERPRISE_REPO_CREATOR_OWNER], False
+            raise AssertionError(f"should not call {path}")
+
+        errors: list[dict[str, str]] = []
+        with patch.object(gitee, "paginate", fake_paginate):
+            repos, truncated, kind = gitee.fetch_namespace_repos(
+                "https://gitee.com/api/v5", "testdaily", "tok", 1, errors
+            )
+
+        self.assertEqual(kind, "enterprise")
+        self.assertFalse(truncated)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(repos), 1)
+        self.assertEqual(repos[0]["owner"], "testdaily")
+        self.assertEqual(repos[0]["name"], "app")
+        self.assertEqual(repos[0]["full_name"], "testdaily/app")
+
+    def test_org_repo_keeps_owner_login(self):
+        def fake_paginate(api, path, token, query, max_pages):
+            if path == "/orgs/someorg/repos":
+                return [ORG_REPO], False
+            raise AssertionError(f"should not call {path}")
+
+        errors: list[dict[str, str]] = []
+        with patch.object(gitee, "paginate", fake_paginate):
+            repos, truncated, kind = gitee.fetch_namespace_repos(
+                "https://gitee.com/api/v5",
+                "someorg",
+                "tok",
+                1,
+                errors,
+                namespace_type="org",
+            )
+
+        self.assertEqual(kind, "org")
+        self.assertEqual(repos[0]["owner"], "someorg")
+        self.assertEqual(repos[0]["full_name"], "someorg/demo")
 
 
 class PersonIdentityTest(unittest.TestCase):

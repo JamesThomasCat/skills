@@ -426,18 +426,32 @@ def _is_http_status(err: Exception, code: int) -> bool:
     return str(err).startswith(f"HTTP {code} ")
 
 
-def _slim_repos(raw: list[Any], fallback_owner: str) -> list[dict[str, Any]]:
+def _slim_repos(
+    raw: list[Any], fallback_owner: str, *, repo_owner: str | None = None
+) -> list[dict[str, Any]]:
+    """Normalize repo list items.
+
+    Enterprise list payloads often set owner.login to the creator (e.g. cuizhaoy),
+    not the enterprise path. Subsequent /repos/{owner}/{repo} calls must use the
+    enterprise path, so pass repo_owner=that path for enterprise listings.
+    """
     repos: list[dict[str, Any]] = []
+    forced = (repo_owner or "").strip()
     for item in raw:
         if not isinstance(item, dict):
             continue
         owner = item.get("owner") if isinstance(item.get("owner"), dict) else {}
         name = item.get("path") or item.get("name") or ""
+        owner_login = forced or (owner.get("login") or fallback_owner or "")
+        if forced:
+            full_name = f"{owner_login}/{name}" if name else owner_login
+        else:
+            full_name = item.get("full_name") or f"{owner_login}/{name}"
         repos.append(
             {
                 "name": name,
-                "full_name": item.get("full_name") or f"{owner.get('login') or fallback_owner}/{name}",
-                "owner": owner.get("login") or fallback_owner,
+                "full_name": full_name,
+                "owner": owner_login,
                 "html_url": item.get("html_url"),
                 "private": item.get("private"),
                 "default_branch": item.get("default_branch"),
@@ -458,6 +472,8 @@ def fetch_namespace_repos(
 
     auto tries GET /enterprises/{name}/repos first (testdaily is an enterprise),
     then GET /orgs/{name}/repos only on HTTP 404. Other errors do not fall back.
+    Enterprise listings force repo owner to the enterprise path so later
+    /repos/{owner}/{repo} calls do not use creator logins such as cuizhaoy.
     """
     name_q = urllib.parse.quote(name, safe="")
     kind = (namespace_type or "auto").strip().lower()
@@ -466,10 +482,12 @@ def fetch_namespace_repos(
     ent_path = f"/enterprises/{name_q}/repos"
     org_path = f"/orgs/{name_q}/repos"
 
-    def try_path(path: str) -> tuple[list[dict[str, Any]], bool] | Exception:
+    def try_path(
+        path: str, *, force_owner: str | None = None
+    ) -> tuple[list[dict[str, Any]], bool] | Exception:
         try:
             raw, truncated = paginate(api, path, token, {"type": "all"}, max_pages)
-            return _slim_repos(raw, name), truncated
+            return _slim_repos(raw, name, repo_owner=force_owner), truncated
         except Exception as e:
             return e
 
@@ -481,7 +499,7 @@ def fetch_namespace_repos(
         repos, truncated = result
         return repos, truncated, "org"
 
-    result = try_path(ent_path)
+    result = try_path(ent_path, force_owner=name)
     if not isinstance(result, Exception):
         repos, truncated = result
         return repos, truncated, "enterprise"

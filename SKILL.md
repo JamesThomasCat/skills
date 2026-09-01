@@ -202,6 +202,8 @@ python scripts/work_by_person.py --owner <owner> --repo <repo> --out work.json
 python scripts/daily_report.py --person <login或姓名> --date YYYY-MM-DD --out daily.json
 ```
 
+默认 `--concurrency 8`、`--http-timeout 10`（仓库扫描并行，单次 GET 10 秒超时）。`--concurrency 1` 恢复原来的串行循环和 `--sleep` 间隔。
+
 上下文里已经有该人当天的提交详情、用户只说「总结」时：不要重跑全空间扫描，直接按下面样式输出。
 
 **输出必须是这个形状（标题级短语、中文顿号编号）。不要加仓库名、SHA、文件列表、范围说明：**

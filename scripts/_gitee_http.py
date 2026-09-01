@@ -10,14 +10,37 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterable, TypeVar
 
 DEFAULT_API_BASE = "https://gitee.com/api/v5"
 MAX_PER_PAGE = 100
 PATCH_CHARS = 4000
 TOKEN_ENV = "GITEE_ACCESS_TOKEN"
 SAVE_TARGETS = ("env", "dotenv", "session")
+DEFAULT_HTTP_TIMEOUT = 30.0
+http_timeout = DEFAULT_HTTP_TIMEOUT
+_T = TypeVar("_T")
+_R = TypeVar("_R")
+
+
+def configure_http(*, timeout: float | None = None) -> None:
+    """Process-wide HTTP timeout for request_json. Other entry scripts keep 30s until set."""
+    global http_timeout
+    if timeout is not None:
+        http_timeout = float(timeout)
+
+
+def bounded_map(fn: Callable[[_T], _R], items: Iterable[_T], workers: int = 1) -> list[_R]:
+    """Apply fn to items, preserving order. workers<=1 stays on the calling thread."""
+    seq = list(items)
+    if not seq:
+        return []
+    if workers <= 1 or len(seq) == 1:
+        return [fn(item) for item in seq]
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        return list(pool.map(fn, seq))
 
 
 def default_skill_root() -> Path:
@@ -219,7 +242,7 @@ def request_json(url: str, token: str, query: dict[str, Any] | None = None) -> A
         headers["Authorization"] = f"Bearer {token}"
     req = urllib.request.Request(full, headers=headers, method="GET")
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=http_timeout) as resp:
             body = resp.read().decode("utf-8")
             status = resp.status
     except urllib.error.HTTPError as e:

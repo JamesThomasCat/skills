@@ -225,5 +225,53 @@ class PersonIdentityTest(unittest.TestCase):
         self.assertTrue(gitee.commit_matches_any_person(needles, self.COMMIT))
 
 
+class HttpClientConfigTest(unittest.TestCase):
+    def tearDown(self) -> None:
+        gitee.configure_http(timeout=30)
+
+    def test_request_json_uses_configured_timeout(self):
+        captured: dict[str, object] = {}
+
+        class FakeResp:
+            status = 200
+
+            def read(self):
+                return b'{"ok": true}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+        def fake_urlopen(req, timeout=None):
+            captured["timeout"] = timeout
+            return FakeResp()
+
+        gitee.configure_http(timeout=10)
+        with patch.object(gitee.urllib.request, "urlopen", fake_urlopen):
+            data = gitee.request_json("https://gitee.com/api/v5/ping", "")
+        self.assertEqual(captured["timeout"], 10)
+        self.assertEqual(data, {"ok": True})
+
+
+class BoundedMapTest(unittest.TestCase):
+    def test_preserves_order_with_workers(self):
+        def work(n: int) -> int:
+            return n * 2
+
+        self.assertEqual(gitee.bounded_map(work, [3, 1, 2], workers=4), [6, 2, 4])
+
+    def test_workers_one_runs_inline(self):
+        seen: list[int] = []
+
+        def work(n: int) -> int:
+            seen.append(n)
+            return n
+
+        self.assertEqual(gitee.bounded_map(work, [1, 2, 3], workers=1), [1, 2, 3])
+        self.assertEqual(seen, [1, 2, 3])
+
+
 if __name__ == "__main__":
     unittest.main()

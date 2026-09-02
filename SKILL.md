@@ -77,7 +77,7 @@ Open API 只给这些入口脚本用。不要你自己 curl / urllib / WebFetch 
 
 脚本自动按顺序读：`--token` → 进程环境变量 `GITEE_ACCESS_TOKEN` → `~/.gitee-auto/env` → 本 skill 的 `.env`。不扫描 `API_KEY` / `ANTHROPIC_AUTH_TOKEN` / `ARK_*`。
 
-缺 token 且当前任务需要它时：**先让用户选落地方式，再收令牌**。不要自行决定写成环境变量或 `.env`。
+缺 token 且当前任务需要它时：**先扫描已有凭据（进程/用户级/系统级环境变量 `GITEE_ACCESS_TOKEN`、`~/.gitee-auto/env`、本 skill 的 `.env`），命中就直接跑脚本（脚本会按上文顺序自动读取），无需询问用户；都没命中再让用户选落地方式、收令牌**。不要自行决定写成环境变量或 `.env`。
 
 申请：https://gitee.com/profile/personal_access_tokens （勾选 `projects`；企业空间日报再勾选 `enterprise`）。
 
@@ -88,7 +88,7 @@ Open API 只给这些入口脚本用。不要你自己 curl / urllib / WebFetch 
 
 请先选一种落地方式，再把令牌发给我：
 
-1. 用户级环境变量 GITEE_ACCESS_TOKEN：长期有效；Windows 写入后需重启 Cursor 才对所有窗口生效
+1. 用户级环境变量 GITEE_ACCESS_TOKEN：长期有效；Windows 写入后需重启 Agent 才对所有窗口生效
 2. 本 skill 目录 .env：只给 gitee-auto 用，已忽略 git
 3. 仅本次会话：当前终端有效，关掉即失效
 
@@ -238,7 +238,7 @@ python scripts/daily_report.py --person <login或姓名> --date YYYY-MM-DD --out
 - 不要先请求 `/orgs/testdaily/repos`（或任何 `/orgs/{name}/repos`）再「查命名空间类型」或改调 `/enterprises/{name}/repos`。testdaily 是企业空间；只跑 `daily_report.py`。
 - 不要因为 Git 作者名和查询名不同就对用户说「按姓名没匹配上，接下来按邮箱对齐」再重跑采集。只跑一次 `daily_report.py`。
 - 不要扫描 `API_KEY` / `ANTHROPIC_AUTH_TOKEN` / 方舟 Key 当 Gitee token。
-- 缺 token 时不要自行决定落地方式；必须让用户在环境变量、`.env`、会话级里选。
+- 缺 token 时不要自行决定落地方式：先扫描已有环境变量和 `.env`，命中就直接用；都没有才让用户在环境变量、`.env`、会话级里选。
 - 不要把 Gitee token 写入 Cursor / Claude / OpenClaw 的语言模型配置。
 - 不要修改本 skill 源文件（`SKILL.md`、`scripts/`、`references/`、`.gitignore`）。
 - 不要在 skill 目录新增 `.py` / `.md` / 临时脚本或摘要；脚本失败也不许改脚本来绕。

@@ -93,7 +93,7 @@ def main() -> int:
     p.add_argument("--profile-dir", default="", help="Profile storage directory (default: skill/profiles)")
     p.add_argument(
         "--refresh-mode", choices=("auto", "full", "profile"), default="auto",
-        help="auto randomly chooses full or profile when a complete profile exists",
+        help="auto randomly chooses; profile falls back to full when no complete profile exists",
     )
     p.add_argument(
         "--concurrency",
@@ -127,8 +127,6 @@ def main() -> int:
     use_profile = profile_usable and (
         args.refresh_mode == "profile" or (args.refresh_mode == "auto" and random.random() >= 0.5)
     )
-    if args.refresh_mode == "profile" and not profile_usable:
-        p.error("No complete profile exists for this person and namespace")
     if use_profile:
         mode = "profile"
         assert profile is not None

@@ -32,7 +32,7 @@ def profile_test_dir():
 
 
 class ProfileDiaryTest(unittest.TestCase):
-    def test_full_scan_creates_profile_cache_reuses_it_and_full_refreshes_it(self):
+    def test_missing_profile_falls_back_to_full_then_cache_reuses_and_refreshes_it(self):
         calls = {"namespace": 0, "branches": 0, "commits": 0}
         repos = [
             {"owner": "testdaily", "name": "student", "full_name": "testdaily/student"},
@@ -58,9 +58,16 @@ class ProfileDiaryTest(unittest.TestCase):
                      "committer_login": None, "authored_at": "2026-09-19T10:00:00+08:00"}], False
 
         with profile_test_dir() as temp_dir:
+            profiles.save_profile({
+                "namespace": "testdaily", "namespace_type": "enterprise", "query": "someone-else",
+                "identity": {"login": "someone-else", "name": "其他人", "email": "other@example.com"},
+                "aliases": ["someone-else"], "repositories": [], "authorized_repositories": [],
+                "complete": True, "scan_meta": {"repo_count": 0, "truncated": False},
+            }, temp_dir)
             out = str(Path(temp_dir) / "daily.json")
             argv = ["daily_report.py", "--person", "meiyanxin", "--date", "2026-09-19",
-                    "--profile-dir", temp_dir, "--out", out, "--details-limit", "0"]
+                    "--profile-dir", temp_dir, "--out", out, "--details-limit", "0",
+                    "--refresh-mode", "profile"]
             with (
                 patch.object(sys, "argv", argv),
                 patch.object(gitee, "fetch_namespace_repos", fetch_namespace),
@@ -80,6 +87,7 @@ class ProfileDiaryTest(unittest.TestCase):
 
                 saved = profiles.find_profile(profiles.load_store("testdaily", temp_dir), "meiyanxin")
                 self.assertIsNotNone(saved)
+                self.assertEqual(len(profiles.load_store("testdaily", temp_dir)["profiles"]), 2)
                 self.assertEqual(saved["identity"], member)
                 self.assertEqual([r["name"] for r in saved["repositories"]], ["student"])
                 self.assertEqual([r["name"] for r in saved["authorized_repositories"]], ["student"])
@@ -92,7 +100,8 @@ class ProfileDiaryTest(unittest.TestCase):
                 self.assertEqual(calls["namespace"], 1)
                 self.assertEqual(calls["branches"], 1)
 
-                with patch.object(daily_report.random, "random", return_value=0.2):
+                with (patch.object(sys, "argv", argv[:-1] + ["auto"]),
+                      patch.object(daily_report.random, "random", return_value=0.2)):
                     self.assertEqual(daily_report.main(), 0)
                 third = json.loads(Path(out).read_text(encoding="utf-8"))
                 self.assertEqual(third["profile_mode"], "full")

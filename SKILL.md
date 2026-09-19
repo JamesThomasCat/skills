@@ -207,7 +207,7 @@ python scripts/daily_report.py --person <login或姓名> --date YYYY-MM-DD --out
 
 默认 `--concurrency 8`、`--http-timeout 10`（仓库扫描并行，单次 GET 10 秒超时）。`--concurrency 1` 串行扫描仓库，并按 `--sleep` 在分支提交请求间隔等待。
 
-可用 `--refresh-mode full` 强制刷新画像，`--refresh-mode profile` 强制使用完整画像；不指定时按上述 50% / 50% 随机选择。`--profile-dir` 可改变画像目录。完整扫描发生接口错误或分页截断时画像会标记 `complete: false`，下次不会走缓存路径。日报 JSON 的 `errors`、`meta.truncated` 和 `meta.details_truncated` 必须据实检查；缓存路径查提交仍需有效 Gitee token。
+可用 `--refresh-mode full` 强制刷新画像，`--refresh-mode profile` 优先使用完整画像；若该空间尚无此人画像或画像不完整，则自动走完整流程查询日报并保存新画像。不指定时按上述 50% / 50% 随机选择；首次没有完整画像也走完整流程。`--profile-dir` 可改变画像目录。完整扫描发生接口错误或分页截断时画像会标记 `complete: false`，下次不会走缓存路径。日报 JSON 的 `errors`、`meta.truncated` 和 `meta.details_truncated` 必须据实检查；缓存路径查提交仍需有效 Gitee token。
 
 每次新的日报查询都运行 `daily_report.py`，确保该人有对应画像并执行随机选择。仅当用户明确要求修改刚生成的文字措辞、并未要求重新查询时，直接根据已有 JSON 重写文字。
 

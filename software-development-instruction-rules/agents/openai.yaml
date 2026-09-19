@@ -1,0 +1,4 @@
+interface:
+  display_name: "软件开发阶段门禁规则"
+  short_description: "按软件生命周期检查阶段门禁和交付证据"
+  default_prompt: "使用 $software-development-instruction-rules 评审此项目的软件生命周期门禁。"

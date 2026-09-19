@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import random
 import sys
 import time
 from typing import Any
 
 import _gitee_http as gitee
+import _profiles as profiles
 
 DEFAULT_ORG = "testdaily"
 
@@ -16,40 +18,6 @@ DEFAULT_ORG = "testdaily"
 def _scope_new_errors(errors: list[dict[str, str]], start: int, prefix: str) -> None:
     for item in errors[start:]:
         item["step"] = f"{prefix}:{item['step']}"
-
-
-def _repo_has_person(
-    api: str,
-    owner: str,
-    repo: str,
-    token: str,
-    person: str,
-    max_pages: int,
-    errors: list[dict[str, str]],
-) -> tuple[bool, str | None, list[dict[str, Any]]]:
-    owner_q, repo_q = gitee.repo_path(owner, repo)
-    label = f"{owner}/{repo}"
-    start = len(errors)
-    collaborators, _ = gitee.fetch_collaborators(api, owner_q, repo_q, token, max_pages, errors)
-    _scope_new_errors(errors, start, label)
-    start = len(errors)
-    contributors = gitee.fetch_contributors(api, owner_q, repo_q, token, errors)
-    _scope_new_errors(errors, start, label)
-    matched: list[dict[str, Any]] = []
-    people: list[dict[str, Any]] = []
-    how: str | None = None
-    for u in collaborators:
-        people.append(u)
-        if gitee.user_matches_person(person, u):
-            matched.append(u)
-            how = "collaborator"
-    for u in contributors:
-        people.append(u)
-        if gitee.user_matches_person(person, u):
-            matched.append(u)
-            if how is None:
-                how = "contributor"
-    return bool(matched), how, people
 
 
 def _collect_repo_commits(
@@ -63,14 +31,12 @@ def _collect_repo_commits(
     max_pages: int,
     sleep_s: float,
     errors: list[dict[str, str]],
-) -> tuple[dict[str, dict[str, Any]], list[str], bool]:
+    branches: list[str],
+) -> tuple[dict[str, dict[str, Any]], bool]:
     owner_q, repo_q = gitee.repo_path(owner, repo)
     label = f"{owner}/{repo}"
-    start = len(errors)
-    branches, br_truncated = gitee.fetch_branches(api, owner_q, repo_q, token, max_pages, errors)
-    _scope_new_errors(errors, start, label)
     by_sha: dict[str, dict[str, Any]] = {}
-    truncated = br_truncated
+    truncated = False
     for i, branch in enumerate(branches):
         start = len(errors)
         commits, c_truncated = gitee.fetch_commits(
@@ -102,7 +68,7 @@ def _collect_repo_commits(
             by_sha[sha] = row
         if sleep_s and i + 1 < len(branches):
             time.sleep(sleep_s)
-    return by_sha, branches, truncated
+    return by_sha, truncated
 
 
 def main() -> int:
@@ -124,6 +90,11 @@ def main() -> int:
     p.add_argument("--details-limit", type=int, default=20, help="Hydrate this many unique SHAs with diffs")
     p.add_argument("--max-pages", type=int, default=50)
     p.add_argument("--sleep", type=float, default=0.15)
+    p.add_argument("--profile-dir", default="", help="Profile storage directory (default: skill/profiles)")
+    p.add_argument(
+        "--refresh-mode", choices=("auto", "full", "profile"), default="auto",
+        help="auto randomly chooses full or profile when a complete profile exists",
+    )
     p.add_argument(
         "--concurrency",
         type=int,
@@ -137,6 +108,8 @@ def main() -> int:
         help="Seconds for each Gitee GET (default 10). Other scripts stay at 30 unless they call configure_http",
     )
     args = p.parse_args()
+    if args.details_limit < 0 or args.max_pages < 1:
+        p.error("--details-limit must be >= 0 and --max-pages must be >= 1")
     gitee.apply_token(args)
 
     api = args.api_base.rstrip("/")
@@ -145,85 +118,84 @@ def main() -> int:
     inner_sleep = 0.0 if workers > 1 else args.sleep
     since, until = gitee.day_bounds_iso(args.date)
     errors: list[dict[str, str]] = []
-    repos, repos_truncated, namespace_type = gitee.fetch_namespace_repos(
-        api, args.org, args.token, args.max_pages, errors, namespace_type=args.namespace_type
+    store = profiles.load_store(args.org, args.profile_dir)
+    profile = profiles.find_profile(store, args.person)
+    profile_usable = bool(
+        profile and profile.get("complete")
+        and (args.namespace_type == "auto" or profile.get("namespace_type") == args.namespace_type)
     )
+    use_profile = profile_usable and (
+        args.refresh_mode == "profile" or (args.refresh_mode == "auto" and random.random() >= 0.5)
+    )
+    if args.refresh_mode == "profile" and not profile_usable:
+        p.error("No complete profile exists for this person and namespace")
+    if use_profile:
+        mode = "profile"
+        assert profile is not None
+    else:
+        mode = "full"
+        profile, profile_errors = profiles.scan_profile(
+            api, args.org, args.person, args.token, args.max_pages, workers,
+            namespace_type=args.namespace_type,
+        )
+        errors.extend(profile_errors)
+        if profile.get("namespace_type"):
+            profiles.save_profile(profile, args.profile_dir)
+
+    namespace_type = profile.get("namespace_type")
+    repo_inventory = profile.get("repositories") or []
+    scan_meta = profile.get("scan_meta") or {}
 
     matched_repos: list[dict[str, Any]] = []
     all_by_sha: dict[str, dict[str, Any]] = {}
-    any_truncated = repos_truncated
-    person_needles: list[str] = gitee.identity_needles_for_person(args.person, [])
+    any_truncated = bool(scan_meta.get("truncated"))
+    person_needles = profile.get("aliases") or [args.person]
 
     def scan_repo(repo: dict[str, Any]) -> dict[str, Any]:
         local_errors: list[dict[str, str]] = []
-        owner = repo.get("owner") or args.org
-        name = repo.get("name") or ""
-        base: dict[str, Any] = {
-            "hit": False,
-            "errors": local_errors,
-            "owner": owner,
-            "name": name,
-            "repo": repo,
-        }
-        if not name:
-            return base
-        hit, how, people = _repo_has_person(
-            api, owner, name, args.token, args.person, args.max_pages, local_errors
-        )
-        if not hit:
-            return base
-        needles = gitee.identity_needles_for_person(args.person, people)
-        by_sha, branches, truncated = _collect_repo_commits(
+        owner = repo["owner"]
+        name = repo["name"]
+        by_sha, truncated = _collect_repo_commits(
             api,
             owner,
             name,
             args.token,
-            needles,
+            repo.get("identity_needles") or person_needles,
             since,
             until,
             args.max_pages,
             inner_sleep,
             local_errors,
+            repo.get("branches") or [],
         )
         return {
-            "hit": True,
             "errors": local_errors,
-            "owner": owner,
-            "name": name,
             "repo": repo,
-            "how": how,
-            "needles": needles,
             "by_sha": by_sha,
-            "branches": branches,
             "truncated": truncated,
         }
 
     if workers <= 1:
         scanned: list[dict[str, Any]] = []
-        for i, repo in enumerate(repos):
+        for i, repo in enumerate(repo_inventory):
             scanned.append(scan_repo(repo))
-            if args.sleep and i + 1 < len(repos):
+            if args.sleep and i + 1 < len(repo_inventory):
                 time.sleep(args.sleep)
     else:
-        scanned = gitee.bounded_map(scan_repo, repos, workers)
+        scanned = gitee.bounded_map(scan_repo, repo_inventory, workers)
 
     for row in scanned:
         errors.extend(row["errors"])
-        if not row["hit"]:
-            continue
-        for n in row["needles"]:
-            if n not in person_needles:
-                person_needles.append(n)
         if row["truncated"]:
             any_truncated = True
         repo = row["repo"]
-        owner = row["owner"]
-        name = row["name"]
+        owner = repo["owner"]
+        name = repo["name"]
         matched_repos.append(
             {
                 "full_name": repo.get("full_name") or f"{owner}/{name}",
-                "matched_as": row["how"],
-                "branch_count": len(row["branches"]),
+                "matched_as": repo.get("matched_as"),
+                "branch_count": len(repo.get("branches") or []),
                 "commit_count": len(row["by_sha"]),
             }
         )
@@ -240,7 +212,7 @@ def main() -> int:
     commits.sort(key=lambda c: c.get("authored_at") or "", reverse=True)
 
     details: list[dict[str, Any]] = []
-    details_truncated = False
+    details_truncated = len(commits) > args.details_limit
     if args.details_limit and commits:
         grouped: dict[str, list[dict[str, Any]]] = {}
         for c in commits:
@@ -269,6 +241,10 @@ def main() -> int:
             "namespace_type": namespace_type,
             "person": args.person,
             "person_needles": person_needles,
+            "profile_mode": mode,
+            "profile_path": str(profiles.profile_path(args.org, args.profile_dir)),
+            "profile_updated_at": profile.get("updated_at"),
+            "profile_complete": profile.get("complete"),
             "date": args.date,
             "since": since,
             "until": until,
@@ -280,11 +256,11 @@ def main() -> int:
             "commits": commits,
             "commit_details": details,
             "meta": {
-                "org_repo_count": len(repos),
+                "org_repo_count": scan_meta.get("repo_count"),
                 "matched_repo_count": len(matched_repos),
                 "commit_count": len(commits),
                 "detail_count": len(details),
-                "repos_truncated": repos_truncated,
+                "repos_truncated": scan_meta.get("truncated"),
                 "truncated": any_truncated,
                 "details_truncated": details_truncated,
                 "max_pages": args.max_pages,

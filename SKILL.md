@@ -4,7 +4,7 @@ description: >
   按用户实际要的那一件事拉取 Gitee 数据：仓库成员与贡献者、提交列表、单次 commit
   的 message/diff、按人汇总、或工作日报。用户提到 Gitee/码云、collaborators、
   contributors、commit 列表/详情、按人总结、周报、工作日报、testdaily、今日日报、
-  Gitee 私人令牌、GITEE_ACCESS_TOKEN 时使用本 skill。不要默认把几件事一次做完。
+  Gitee 私人令牌、GITEE_ACCESS_TOKEN、用户画像、查询画像、刷新画像时使用本 skill。不要默认把几件事一次做完。
   不要用 GitHub API 代替 Gitee。
 ---
 
@@ -19,8 +19,10 @@ description: >
 | 某个 SHA 的说明和代码改动 | `scripts/commit_detail.py --sha …` | 不要拉全员名单，不要拉仓库历史 |
 | 按人汇总、周报、谁改了什么 | `scripts/work_by_person.py` | 这才是唯一会拼人员+提交+详情的入口 |
 | 工作日报、总结 xxx 今日工作 | `scripts/daily_report.py` | 不要套按人工作长文；不要先调组织接口再自己改调企业接口；见下方固定样式 |
+| 保存或刷新用户画像 | `scripts/save_profile.py` | 不拉提交或 diff |
+| 根据关键词查询已保存画像 | `scripts/query_profile.py` | 本地查询，不请求 Gitee |
 
-接口字段见 [references/api.md](references/api.md)。上表「脚本」列才是入口。`scripts/_gitee_http.py` 和 `scripts/test_gitee_http.py` 不是入口，禁止 `import` 或直接运行。表里没有的能力（例如 PR 列表）就停下，说明缺口。
+接口字段见 [references/api.md](references/api.md)。上表「脚本」列才是入口。`scripts/_gitee_http.py`、`scripts/_profiles.py` 和 `scripts/test_gitee_http.py` 不是入口，禁止 `import` 或直接运行。表里没有的能力（例如 PR 列表）就停下，说明缺口。
 
 Open API 只给这些入口脚本用。不要你自己 curl / urllib / WebFetch 调 `gitee.com/api/v5`。
 
@@ -64,7 +66,7 @@ Open API 只给这些入口脚本用。不要你自己 curl / urllib / WebFetch 
 ## 开始前
 
 1. 工作日报默认**企业空间** `testdaily`（不是社区组织），不需要单个 `repo`。其他任务向用户确认 `owner` 和 `repo`。可从 `https://gitee.com/{owner}/{repo}` 解析。
-2. 按 [Token](#token) 处理鉴权。私有库和**成员列表**缺 token 就停，不要硬跑。公开库只拉 commits 可以无 token。
+2. 调用 Gitee 的入口按 [Token](#token) 处理鉴权。私有库和**成员列表**缺 token 就停，不要硬跑。公开库只拉 commits 可以无 token。`query_profile.py` 只读本地文件，不需要 token。
 3. 列表类任务用户没给时间范围时：先问 `since` / `until` / 分支；对方坚持全量再拉，并说明分页上限。
 4. 永远不要在命令行或回复里打印 token。不要把 Gitee token 写入 Cursor / Claude / OpenClaw 的 LLM 配置。
 5. 按 [源文件只读](#源文件只读) 执行：只跑入口脚本；失败或缺口就停，不要改 skill，不要自己发 HTTP。
@@ -192,9 +194,10 @@ python scripts/work_by_person.py --owner <owner> --repo <repo> --out work.json
 含义（必须按此采集，不要只扫一个仓库、不要只扫默认分支）：
 
 1. 企业空间默认 `testdaily`（用户另给空间 path 则用用户的）。`testdaily` 是企业，不是社区组织。
-2. 列出该空间下仓库，只保留**贡献者或成员能匹配到该人**的仓库（login / 姓名 / 邮箱）。同邮箱的 Git 作者名（例如贡献者 `meiyanxin`、提交作者 `thoamsmay`）算同一个人。
-3. 每个匹配仓库拉取**全部分支**上、该人在该日（Asia/Shanghai `+08:00`）的 commit；同一 SHA 去重。提交过滤要用成员/贡献者上的 login、姓名、**邮箱**，不要只拿用户说的那个名字去对 `commit.author.name`。
-4. 用 JSON 里的 `commits` / `commit_details` 归纳事项，禁止编造。
+2. 默认模式每次独立随机选择一次：已有完整用户画像时，50% 概率完整扫描空间内所有仓库、成员/贡献者及分支并更新画像；50% 概率直接使用画像中的仓库和分支。首次没有完整画像时先完整扫描。画像按空间保存在本 skill 的 `profiles/`，已被 git 忽略；画像包含 login、姓名、邮箱、匹配仓库和分支。成员可带权限字段；仅由贡献者匹配的仓库不应声称当前拥有写权限。缓存路径可能漏掉画像保存后新增的仓库或分支，JSON 的 `profile_mode`、`profile_updated_at` 会标明来源和时间。
+3. 完整扫描先读取空间内各仓库的成员与贡献者，再保留 login / 姓名 / 邮箱直接匹配该人、或与已确认身份邮箱相同的仓库。同邮箱的 Git 作者名（例如贡献者 `meiyanxin`、提交作者 `thoamsmay`）算同一个人。
+4. 每个匹配仓库拉取所选路径中的**全部已知分支**上、该人在该日（Asia/Shanghai `+08:00`）的 commit；同一 SHA 去重。提交过滤要用成员/贡献者上的 login、姓名、**邮箱**，不要只拿用户说的那个名字去对 `commit.author.name`。
+5. 用 JSON 里的 `commits` / `commit_details` 归纳事项，禁止编造。
 
 `daily_report.py` 会先请求 `GET /enterprises/{name}/repos`，**仅当该接口 HTTP 404** 时才回退 `GET /orgs/{name}/repos`。不要你先调组织接口、把 404 说给用户、再自己改调企业 API。企业列表里 `owner.login` 常是创建者（例如 `cuizhaoy`），后续 `/repos/{owner}/{repo}` 一律用企业 path（默认 `testdaily`），不要你改成个人 login 或自己重打接口。Git 作者名和查询名不一致时，脚本会用已匹配身份的邮箱对齐，不要你先报「按姓名没匹配上」再按邮箱重跑一遍。
 
@@ -202,28 +205,52 @@ python scripts/work_by_person.py --owner <owner> --repo <repo> --out work.json
 python scripts/daily_report.py --person <login或姓名> --date YYYY-MM-DD --out daily.json
 ```
 
-默认 `--concurrency 8`、`--http-timeout 10`（仓库扫描并行，单次 GET 10 秒超时）。`--concurrency 1` 恢复原来的串行循环和 `--sleep` 间隔。
+默认 `--concurrency 8`、`--http-timeout 10`（仓库扫描并行，单次 GET 10 秒超时）。`--concurrency 1` 串行扫描仓库，并按 `--sleep` 在分支提交请求间隔等待。
 
-上下文里已经有该人当天的提交详情、用户只说「总结」时：不要重跑全空间扫描，直接按下面样式输出。
+可用 `--refresh-mode full` 强制刷新画像，`--refresh-mode profile` 强制使用完整画像；不指定时按上述 50% / 50% 随机选择。`--profile-dir` 可改变画像目录。完整扫描发生接口错误或分页截断时画像会标记 `complete: false`，下次不会走缓存路径。日报 JSON 的 `errors`、`meta.truncated` 和 `meta.details_truncated` 必须据实检查；缓存路径查提交仍需有效 Gitee token。
 
-**输出必须是这个形状（标题级短语、中文顿号编号）。不要加仓库名、SHA、文件列表、范围说明：**
+每次新的日报查询都运行 `daily_report.py`，确保该人有对应画像并执行随机选择。仅当用户明确要求修改刚生成的文字措辞、并未要求重新查询时，直接根据已有 JSON 重写文字。
+
+**输出必须是这个形状（第二行标明查询方式；项目名放在方括号里，后面是具体工作内容；数字加英文句点编号）。不要加 SHA、文件列表、范围说明：**
 
 ```
 工作日报：
-1、AP Student Job Perception
-2、AP Student 去答疑前置题目列表
-3、保利威加密视频鉴权
+查询方式：完整流程
+1. [AP Student] 完成 Job Perception 相关功能
+2. [AP Student] 完成去答疑前置题目列表
+3. [视频服务] 完成保利威加密视频鉴权
 ```
 
 - 第一行固定为 `工作日报：`
+- 第二行固定为 `查询方式：完整流程` 或 `查询方式：用户画像`，分别对应日报 JSON 的 `profile_mode: full` 和 `profile_mode: profile`。每次给出日报都要写，包括当天无提交；不得根据是否存在画像猜测本次查询方式。
+- 每条固定为 `序号. [项目名或意译] 具体日报内容`。项目名优先从提交所属仓库及其上下文确定；缩写难懂时可意译，但不能凭空编造。一个事项跨项目时拆开写。
 - 同一事项的多条 commit 合并成一条
 - 不要把 merge 机器人或纯 `Signed-off-by` 当成条目
-- 当天零提交则只写：
+- 当天零提交时也标明查询方式：
 
 ```
 工作日报：
+查询方式：用户画像
 当天无提交
 ```
+
+## 6. 用户画像
+
+需要单独保存或刷新画像时，运行：
+
+```bash
+python scripts/save_profile.py --person <login或姓名> --org testdaily --out profile.json
+```
+
+脚本扫描该空间所有仓库，匹配成员/贡献者，保存个人 login、姓名、邮箱及匹配仓库的分支。`authorized_repositories` 只列成员接口确认的权限仓库；`repositories` 还包含历史贡献者匹配的仓库，供日报采集。默认保存到 `profiles/`，按企业/组织空间分文件；`--profile-dir` 可指定其他目录。返回 JSON 的 `profile.complete` 为 false 时说明扫描不完整，不能将仓库清单视为全集。画像里的 `matched_as: contributor` 只表示历史贡献者匹配，不能证明当前权限。
+
+按关键词查询已有画像时，运行：
+
+```bash
+python scripts/query_profile.py --keyword <姓名、login、邮箱或仓库关键词> --org testdaily --out matches.json
+```
+
+`--all-namespaces` 可跨已保存空间搜索。查询脚本只读本地画像，不需要 token，也不调用 Gitee。结果 `profiles[]` 包含个人信息及仓库/分支。不要在普通日报回复中打印画像里的私人邮箱。
 
 ## 不要做的事
 

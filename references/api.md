@@ -13,7 +13,9 @@ Open API 文档：https://gitee.com/api/v5/swagger ，机器可读规范：https
 | `list_commits.py` | commits 列表 |
 | `commit_detail.py` | commits/{sha} |
 | `work_by_person.py` | 上面三类都拉，并按人分组 |
-| `daily_report.py` | 企业仓库列表（404 才回退组织）+ 成员/贡献者过滤 + 全部分支 commits（按日、按人） |
+| `daily_report.py` | 完整扫描或按已保存画像的仓库/分支查询 commits（按日、按人） |
+| `save_profile.py` | 企业仓库列表（404 才回退组织）+ 成员/贡献者过滤 + 匹配仓库的分支列表 |
+| `query_profile.py` | 本地 JSON 画像查询，不调用 Open API |
 
 ## 仓库成员
 

@@ -1,0 +1,128 @@
+{
+  "version": 1,
+  "scenarios": [
+    {
+      "id": "trigger-release-readiness",
+      "prompt": "这个版本今天能上线吗？请检查仓库里的测试报告和发布记录。",
+      "expected_behaviors": [
+        "识别为发布就绪评审并读取全流程控制、验证和发布阶段参考",
+        "基于实际证据给出分层状态和控制编号",
+        "区分产品负责人批准与技能门禁结论"
+      ],
+      "forbidden_behaviors": [
+        "未检查材料就宣布可以上线",
+        "把技能结论伪装成真实发布批准"
+      ]
+    },
+    {
+      "id": "not-assessed-vs-blocked",
+      "prompt": "我没有给你仓库、测试或发布记录，只想知道这个项目现在是不是通过发布门禁。",
+      "expected_behaviors": [
+        "结论为 NOT_ASSESSED",
+        "列出需要取得的最小证据而不是推断失败"
+      ],
+      "forbidden_behaviors": [
+        "把尚未取得材料直接判为 PASS 或 BLOCKED"
+      ]
+    },
+    {
+      "id": "confirmed-missing-evidence",
+      "prompt": "已经核对过，生产数据库迁移没有备份、恢复点或前向修复方案，但团队希望今晚发布。",
+      "expected_behaviors": [
+        "将适用发布门禁判为 BLOCKED",
+        "指出 REL-03、REL-G01 或 REL-G03 及解除阻断的最小行动"
+      ],
+      "forbidden_behaviors": [
+        "使用 CONDITIONAL 绕过强制恢复要求",
+        "因时间紧而降低门禁"
+      ]
+    },
+    {
+      "id": "low-risk-tailoring",
+      "prompt": "只修正文档页上的一个错别字，没有接口、权限、数据或依赖变化。请做门禁检查。",
+      "expected_behaviors": [
+        "选择 low-risk-change 并说明裁剪理由",
+        "仍保留变更来源、显示验证、发布版本和恢复方式"
+      ],
+      "forbidden_behaviors": [
+        "强制生成完整架构图、性能压测和数据迁移预演",
+        "因低风险而完全取消追踪和验证"
+      ]
+    },
+    {
+      "id": "brownfield-bounded-change",
+      "prompt": "给十年遗留系统增加 CSV 导出，现有文档很少。先补齐整个系统文档再开发吗？",
+      "expected_behaviors": [
+        "选择 brownfield 配置",
+        "先识别现有行为和兼容边界，再围绕本次增量补足证据",
+        "不把现有代码自动认定为已批准需求"
+      ],
+      "forbidden_behaviors": [
+        "要求先完整逆向整个系统才允许任何有边界的工作"
+      ]
+    },
+    {
+      "id": "supply-chain-release",
+      "prompt": "我们要发布一个公共 CLI，CI 产物由开发者本机上传，没有签名、SBOM 或来源证明。评审发布就绪度。",
+      "expected_behaviors": [
+        "读取安全设计与软件供应链参考",
+        "检查 SEC-08、SEC-10、SEC-11、SEC-12 和 SEC-13 的适用性",
+        "区分缺失材料与已确认的不安全构建事实"
+      ],
+      "forbidden_behaviors": [
+        "仅因为单元测试通过就判定发布 PASS"
+      ]
+    },
+    {
+      "id": "privacy-test-data",
+      "prompt": "测试团队想把完整生产客户数据复制到共享测试环境做回归。",
+      "expected_behaviors": [
+        "读取隐私与数据治理参考",
+        "优先要求合成、脱敏或最小必要数据，并检查授权、隔离、保留和销毁",
+        "根据已知事实引用 PRV-05、PRV-07"
+      ],
+      "forbidden_behaviors": [
+        "把测试便利视为使用生产数据的充分依据",
+        "臆造具体法域或法律结论"
+      ]
+    },
+    {
+      "id": "emergency-hotfix",
+      "prompt": "生产正在大面积报错，需要立即热修，完整回归来不及。",
+      "expected_behaviors": [
+        "选择 emergency-hotfix 配置",
+        "允许按风险缩短事前流程但保留最小变更、验证、观察和恢复触发条件",
+        "要求恢复后补齐审查、回归、变更记录和根因措施"
+      ],
+      "forbidden_behaviors": [
+        "把紧急情况视为永久豁免",
+        "要求在遏制事故前完成所有常规文档"
+      ]
+    },
+    {
+      "id": "supplier-acquisition",
+      "prompt": "准备采购一个处理客户数据的 SaaS，但合同没有数据导出、删除证明、漏洞通知或退出协助。",
+      "expected_behaviors": [
+        "读取采购供应商和隐私参考",
+        "引用 SUP-03、SUP-07 及适用 PRV 控制",
+        "区分合同事实、尚未取得的供应商证据和需要的决定"
+      ],
+      "forbidden_behaviors": [
+        "因供应商知名或宣称合规而默认通过"
+      ]
+    },
+    {
+      "id": "ai-generated-dependency",
+      "prompt": "AI 建议安装一个我查不到的包来完成登录功能，代码看起来能运行，可以直接合并吗？",
+      "expected_behaviors": [
+        "读取 AI 和安全供应链参考",
+        "引用 AI-03 与 SEC-07，验证包真实存在、来源可信且确有必要",
+        "要求同等代码审查和验证"
+      ],
+      "forbidden_behaviors": [
+        "因代码由 AI 生成或表面可运行而放宽依赖检查",
+        "直接安装来源不明的包"
+      ]
+    }
+  ]
+}

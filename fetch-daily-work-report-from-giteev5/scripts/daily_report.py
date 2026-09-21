@@ -20,54 +20,42 @@ def _scope_new_errors(errors: list[dict[str, str]], start: int, prefix: str) -> 
         item["step"] = f"{prefix}:{item['step']}"
 
 
-def _collect_repo_commits(
+def _collect_branch_commits(
     api: str,
     owner: str,
     repo: str,
+    branch: str,
     token: str,
     needles: list[str],
     since: str,
     until: str,
     max_pages: int,
-    sleep_s: float,
     errors: list[dict[str, str]],
-    branches: list[str],
 ) -> tuple[dict[str, dict[str, Any]], bool]:
     owner_q, repo_q = gitee.repo_path(owner, repo)
     label = f"{owner}/{repo}"
     by_sha: dict[str, dict[str, Any]] = {}
-    truncated = False
-    for i, branch in enumerate(branches):
-        start = len(errors)
-        commits, c_truncated = gitee.fetch_commits(
-            api,
-            owner_q,
-            repo_q,
-            token,
-            {"sha": branch, "since": since, "until": until},
-            max_pages,
-            errors,
-        )
-        _scope_new_errors(errors, start, f"{label}@{branch}")
-        if c_truncated:
-            truncated = True
-        for c in commits:
-            if not gitee.commit_matches_any_person(needles, c):
-                continue
-            sha = c.get("sha")
-            if not sha:
-                continue
-            existing = by_sha.get(sha)
-            if existing:
-                if branch not in existing["branches"]:
-                    existing["branches"].append(branch)
-                continue
-            row = dict(c)
-            row["repo"] = f"{owner}/{repo}"
-            row["branches"] = [branch]
-            by_sha[sha] = row
-        if sleep_s and i + 1 < len(branches):
-            time.sleep(sleep_s)
+    start = len(errors)
+    commits, truncated = gitee.fetch_commits(
+        api,
+        owner_q,
+        repo_q,
+        token,
+        {"sha": branch, "since": since, "until": until},
+        max_pages,
+        errors,
+    )
+    _scope_new_errors(errors, start, f"{label}@{branch}")
+    for c in commits:
+        if not gitee.commit_matches_any_person(needles, c):
+            continue
+        sha = c.get("sha")
+        if not sha:
+            continue
+        row = dict(c)
+        row["repo"] = label
+        row["branches"] = [branch]
+        by_sha[sha] = row
     return by_sha, truncated
 
 
@@ -99,7 +87,10 @@ def main() -> int:
         "--concurrency",
         type=int,
         default=8,
-        help="Parallel repo scans (default 8). 1 keeps the old serial loop and --sleep pacing",
+        help=(
+            "Global parallel repo/branch tasks (default 8). "
+            "1 keeps serial execution and --sleep pacing"
+        ),
     )
     p.add_argument(
         "--http-timeout",
@@ -149,55 +140,55 @@ def main() -> int:
     any_truncated = bool(scan_meta.get("truncated"))
     person_needles = profile.get("aliases") or [args.person]
 
-    def scan_repo(repo: dict[str, Any]) -> dict[str, Any]:
+    branch_tasks = [
+        {"repo_index": repo_index, "repo": repo, "branch": branch}
+        for repo_index, repo in enumerate(repo_inventory)
+        for branch in repo.get("branches") or []
+    ]
+
+    def scan_branch(task: dict[str, Any]) -> dict[str, Any]:
         local_errors: list[dict[str, str]] = []
+        repo = task["repo"]
+        branch = task["branch"]
         owner = repo["owner"]
         name = repo["name"]
-        by_sha, truncated = _collect_repo_commits(
+        by_sha, truncated = _collect_branch_commits(
             api,
             owner,
             name,
+            branch,
             args.token,
             repo.get("identity_needles") or person_needles,
             since,
             until,
             args.max_pages,
-            inner_sleep,
             local_errors,
-            repo.get("branches") or [],
         )
         return {
             "errors": local_errors,
+            "repo_index": task["repo_index"],
             "repo": repo,
+            "branch": branch,
             "by_sha": by_sha,
             "truncated": truncated,
         }
 
     if workers <= 1:
         scanned: list[dict[str, Any]] = []
-        for i, repo in enumerate(repo_inventory):
-            scanned.append(scan_repo(repo))
-            if args.sleep and i + 1 < len(repo_inventory):
+        for i, task in enumerate(branch_tasks):
+            scanned.append(scan_branch(task))
+            if args.sleep and i + 1 < len(branch_tasks):
                 time.sleep(args.sleep)
     else:
-        scanned = gitee.bounded_map(scan_repo, repo_inventory, workers)
+        scanned = gitee.bounded_map(scan_branch, branch_tasks, workers)
 
+    repo_shas: list[set[str]] = [set() for _ in repo_inventory]
     for row in scanned:
         errors.extend(row["errors"])
         if row["truncated"]:
             any_truncated = True
-        repo = row["repo"]
-        owner = repo["owner"]
-        name = repo["name"]
-        matched_repos.append(
-            {
-                "full_name": repo.get("full_name") or f"{owner}/{name}",
-                "matched_as": repo.get("matched_as"),
-                "branch_count": len(repo.get("branches") or []),
-                "commit_count": len(row["by_sha"]),
-            }
-        )
         for sha, item in row["by_sha"].items():
+            repo_shas[row["repo_index"]].add(sha)
             existing = all_by_sha.get(sha)
             if existing:
                 for b in item["branches"]:
@@ -205,6 +196,18 @@ def main() -> int:
                         existing["branches"].append(b)
             else:
                 all_by_sha[sha] = item
+
+    for repo_index, repo in enumerate(repo_inventory):
+        owner = repo["owner"]
+        name = repo["name"]
+        matched_repos.append(
+            {
+                "full_name": repo.get("full_name") or f"{owner}/{name}",
+                "matched_as": repo.get("matched_as"),
+                "branch_count": len(repo.get("branches") or []),
+                "commit_count": len(repo_shas[repo_index]),
+            }
+        )
 
     commits = list(all_by_sha.values())
     commits.sort(key=lambda c: c.get("authored_at") or "", reverse=True)
@@ -264,6 +267,8 @@ def main() -> int:
                 "max_pages": args.max_pages,
                 "details_limit": args.details_limit,
                 "concurrency": workers,
+                "concurrency_scope": "repo_branch",
+                "branch_task_count": len(branch_tasks),
                 "http_timeout": args.http_timeout,
             },
             "errors": errors,

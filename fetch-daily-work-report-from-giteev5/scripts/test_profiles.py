@@ -32,6 +32,76 @@ def profile_test_dir():
 
 
 class ProfileDiaryTest(unittest.TestCase):
+    def test_commit_scan_uses_one_global_task_per_repo_branch(self):
+        calls: list[tuple[str, str]] = []
+        bounded_inputs: list[tuple[int, list[tuple[str, str]], int]] = []
+        profile = {
+            "namespace": "testdaily",
+            "namespace_type": "enterprise",
+            "query": "meiyanxin",
+            "identity": {"login": "meiyanxin", "name": None, "email": None},
+            "aliases": ["meiyanxin"],
+            "repositories": [
+                {"owner": "testdaily", "name": "one", "full_name": "testdaily/one",
+                 "branches": ["main", "feature"], "identity_needles": ["meiyanxin"]},
+                {"owner": "testdaily", "name": "two", "full_name": "testdaily/two",
+                 "branches": ["release"], "identity_needles": ["meiyanxin"]},
+            ],
+            "authorized_repositories": [],
+            "complete": True,
+            "scan_meta": {"repo_count": 2, "matched_repo_count": 2, "truncated": False},
+        }
+
+        def bounded_map(fn, items, workers):
+            materialized = list(items)
+            bounded_inputs.append((
+                len(materialized),
+                [(item["repo"]["name"], item["branch"]) for item in materialized],
+                workers,
+            ))
+            return [fn(item) for item in materialized]
+
+        def fetch_commits(api, owner, repo, token, query, max_pages, errors):
+            calls.append((repo, query["sha"]))
+            return [{
+                "sha": "shared" if repo == "one" else "two-sha",
+                "message": "work",
+                "author_login": "meiyanxin",
+                "author_name": "meiyanxin",
+                "author_email": None,
+                "committer_login": None,
+                "authored_at": "2026-09-21T10:00:00+08:00",
+            }], False
+
+        with profile_test_dir() as temp_dir:
+            profiles.save_profile(profile, temp_dir)
+            out = str(Path(temp_dir) / "daily.json")
+            argv = ["daily_report.py", "--person", "meiyanxin", "--date", "2026-09-21",
+                    "--profile-dir", temp_dir, "--out", out, "--details-limit", "0",
+                    "--refresh-mode", "profile", "--concurrency", "8"]
+            with (
+                patch.object(sys, "argv", argv),
+                patch.object(gitee, "bounded_map", bounded_map),
+                patch.object(gitee, "fetch_commits", fetch_commits),
+            ):
+                self.assertEqual(daily_report.main(), 0)
+
+            result = json.loads(Path(out).read_text(encoding="utf-8"))
+            self.assertEqual(bounded_inputs, [(3, [
+                ("one", "main"), ("one", "feature"), ("two", "release")
+            ], 8)])
+            self.assertEqual(calls, [
+                ("one", "main"), ("one", "feature"), ("two", "release")
+            ])
+            self.assertEqual(result["meta"]["branch_task_count"], 3)
+            self.assertEqual(result["meta"]["concurrency_scope"], "repo_branch")
+            self.assertEqual(result["meta"]["commit_count"], 2)
+            shared = next(commit for commit in result["commits"] if commit["sha"] == "shared")
+            self.assertEqual(shared["branches"], ["main", "feature"])
+            self.assertEqual(
+                [repo["commit_count"] for repo in result["repos_matched"]], [1, 1]
+            )
+
     def test_missing_profile_falls_back_to_full_then_cache_reuses_and_refreshes_it(self):
         calls = {"namespace": 0, "branches": 0, "commits": 0}
         repos = [

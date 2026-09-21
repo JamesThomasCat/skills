@@ -1,5 +1,5 @@
 ---
-name: gitee-auto
+name: fetch-daily-work-report-from-giteev5
 description: >
   按用户实际要的那一件事拉取 Gitee 数据：仓库成员与贡献者、提交列表、单次 commit
   的 message/diff、按人汇总、或工作日报。用户提到 Gitee/码云、collaborators、
@@ -34,7 +34,7 @@ Open API 只给这些入口脚本用。不要你自己 curl / urllib / WebFetch 
 
 | 可以写 | 不可以写 |
 |--------|----------|
-| 用户选 1/2 之后，仅通过 `save_token.py` 写 `~/.gitee-auto/env` 或本目录 `.env` | `SKILL.md`、`scripts/*.py`、`references/`、`.gitignore` |
+| 用户选 1/2 之后，仅通过 `save_token.py` 写 `~/.fetch-daily-work-report-from-giteev5/env` 或本目录 `.env` | `SKILL.md`、`scripts/*.py`、`references/`、`.gitignore` |
 | `--out` 的本次 JSON（不要覆盖上面那些源文件） | 新的 `.py` / `.md`、临时解析脚本、API 摘要、调试笔记 |
 | 用户项目目录或系统临时目录里的产出 | 把 skill「补全 / 优化 / 修一下就能跑」 |
 
@@ -77,9 +77,9 @@ Open API 只给这些入口脚本用。不要你自己 curl / urllib / WebFetch 
 
 ## Token
 
-脚本自动按顺序读：`--token` → 进程环境变量 `GITEE_ACCESS_TOKEN` → `~/.gitee-auto/env` → 本 skill 的 `.env`。不扫描 `API_KEY` / `ANTHROPIC_AUTH_TOKEN` / `ARK_*`。
+脚本自动按顺序读：`--token` → 进程环境变量 `GITEE_ACCESS_TOKEN` → `~/.fetch-daily-work-report-from-giteev5/env` → 旧路径 `~/.gitee-auto/env`（兼容读取）→ 本 skill 的 `.env`。新令牌只写入新路径。不扫描 `API_KEY` / `ANTHROPIC_AUTH_TOKEN` / `ARK_*`。
 
-缺 token 且当前任务需要它时：**先扫描已有凭据（进程/用户级/系统级环境变量 `GITEE_ACCESS_TOKEN`、`~/.gitee-auto/env`、本 skill 的 `.env`），命中就直接跑脚本（脚本会按上文顺序自动读取），无需询问用户；都没命中再让用户选落地方式、收令牌**。不要自行决定写成环境变量或 `.env`。
+缺 token 且当前任务需要它时：**先扫描已有凭据（进程/用户级/系统级环境变量 `GITEE_ACCESS_TOKEN`、新旧用户级凭据文件、本 skill 的 `.env`），命中就直接跑脚本（脚本会按上文顺序自动读取），无需询问用户；都没命中再让用户选落地方式、收令牌**。不要自行决定写成环境变量或 `.env`。
 
 申请：https://gitee.com/profile/personal_access_tokens （勾选 `projects`；企业空间日报再勾选 `enterprise`）。
 
@@ -91,7 +91,7 @@ Open API 只给这些入口脚本用。不要你自己 curl / urllib / WebFetch 
 请先选一种落地方式，再把令牌发给我：
 
 1. 用户级环境变量 GITEE_ACCESS_TOKEN：长期有效；Windows 写入后需重启 Agent 才对所有窗口生效
-2. 本 skill 目录 .env：只给 gitee-auto 用，已忽略 git
+2. 本 skill 目录 .env：只给 fetch-daily-work-report-from-giteev5 用，已忽略 git
 3. 仅本次会话：当前终端有效，关掉即失效
 
 申请：https://gitee.com/profile/personal_access_tokens （勾选 projects；企业空间日报再勾选 enterprise）

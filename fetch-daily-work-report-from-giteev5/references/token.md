@@ -6,8 +6,9 @@
 
 1. 命令行 `--token`（尽量不用，会进进程列表）
 2. 当前进程环境变量 `GITEE_ACCESS_TOKEN`
-3. 用户级文件 `~/.gitee-auto/env`（`--target env` 写入这里；Windows 同时写用户环境变量）
-4. 本 skill 目录 `.env`（`--target dotenv`）
+3. 用户级文件 `~/.fetch-daily-work-report-from-giteev5/env`（`--target env` 写入这里；Windows 同时写用户环境变量）
+4. 旧用户级文件 `~/.gitee-auto/env`（仅兼容读取，不再写入）
+5. 本 skill 目录 `.env`（`--target dotenv`）
 
 JSON 的 `auth` 只有 `token_present` 和 `token_source`（`cli` / `environ` / `user_env` / `dotenv`），没有令牌本身。
 
@@ -24,7 +25,7 @@ python scripts/save_token.py --target dotenv
 
 | target | 写入 | 说明 |
 |--------|------|------|
-| `env` | `~/.gitee-auto/env`；Windows 另写用户环境变量 | Windows 写入后需重启 Agent 才对所有窗口生效 |
+| `env` | `~/.fetch-daily-work-report-from-giteev5/env`；Windows 另写用户环境变量 | Windows 写入后需重启 Agent 才对所有窗口生效 |
 | `dotenv` | `<skill>/.env`（gitignore） | 只给本 skill |
 | `session` | 无 | 当前终端 |
 

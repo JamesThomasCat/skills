@@ -18,6 +18,8 @@ DEFAULT_API_BASE = "https://gitee.com/api/v5"
 MAX_PER_PAGE = 100
 PATCH_CHARS = 4000
 TOKEN_ENV = "GITEE_ACCESS_TOKEN"
+SKILL_SLUG = "fetch-daily-work-report-from-giteev5"
+LEGACY_SKILL_SLUG = "gitee-auto"
 SAVE_TARGETS = ("env", "dotenv", "session")
 DEFAULT_HTTP_TIMEOUT = 30.0
 http_timeout = DEFAULT_HTTP_TIMEOUT
@@ -52,7 +54,11 @@ def skill_root() -> Path:
 
 
 def default_user_env_path() -> Path:
-    return Path.home() / ".gitee-auto" / "env"
+    return Path.home() / f".{SKILL_SLUG}" / "env"
+
+
+def legacy_user_env_path() -> Path:
+    return Path.home() / f".{LEGACY_SKILL_SLUG}" / "env"
 
 
 def parse_env_file(path: str | Path) -> dict[str, str]:
@@ -85,13 +91,17 @@ def resolve_token(
     skill_root: Path | None = None,
     user_env_path: Path | None = None,
 ) -> tuple[str, str | None]:
-    """CLI > process env GITEE_ACCESS_TOKEN > ~/.gitee-auto/env > skill .env.
+    """CLI > process env > current user env > legacy user env > skill .env.
 
     Never reads API_KEY / ANTHROPIC_AUTH_TOKEN / ARK_*.
     """
     env = environ if environ is not None else os.environ
     root = Path(skill_root) if skill_root is not None else default_skill_root()
-    user_path = Path(user_env_path) if user_env_path is not None else default_user_env_path()
+    user_paths = (
+        [Path(user_env_path)]
+        if user_env_path is not None
+        else [default_user_env_path(), legacy_user_env_path()]
+    )
 
     cli = (cli_token or "").strip()
     if cli:
@@ -101,9 +111,10 @@ def resolve_token(
     if env_val:
         return env_val, "environ"
 
-    user_val = (parse_env_file(user_path).get(TOKEN_ENV) or "").strip()
-    if user_val:
-        return user_val, "user_env"
+    for user_path in user_paths:
+        user_val = (parse_env_file(user_path).get(TOKEN_ENV) or "").strip()
+        if user_val:
+            return user_val, "user_env"
 
     dotenv_val = (parse_env_file(root / ".env").get(TOKEN_ENV) or "").strip()
     if dotenv_val:
@@ -236,7 +247,7 @@ def request_json(url: str, token: str, query: dict[str, Any] | None = None) -> A
     )
     headers = {
         "Accept": "application/json",
-        "User-Agent": "gitee-auto-skill/1.0",
+        "User-Agent": f"{SKILL_SLUG}/1.0",
     }
     if token:
         headers["Authorization"] = f"Bearer {token}"

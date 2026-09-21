@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import _gitee_http as gitee
@@ -253,6 +255,31 @@ class HttpClientConfigTest(unittest.TestCase):
             data = gitee.request_json("https://gitee.com/api/v5/ping", "")
         self.assertEqual(captured["timeout"], 10)
         self.assertEqual(data, {"ok": True})
+
+
+class SkillRenameTest(unittest.TestCase):
+    def test_default_user_env_path_uses_current_skill_name(self):
+        self.assertEqual(
+            gitee.default_user_env_path().parts[-2:],
+            (".fetch-daily-work-report-from-giteev5", "env"),
+        )
+
+    def test_resolve_token_falls_back_to_legacy_user_env(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            current_path = root / ".fetch-daily-work-report-from-giteev5" / "env"
+            legacy_path = root / ".gitee-auto" / "env"
+            legacy_path.parent.mkdir(parents=True)
+            legacy_path.write_text("GITEE_ACCESS_TOKEN=legacy-token\n", encoding="utf-8")
+
+            with (
+                patch.object(gitee, "default_user_env_path", return_value=current_path),
+                patch.object(gitee, "legacy_user_env_path", return_value=legacy_path),
+            ):
+                token, source = gitee.resolve_token(environ={}, skill_root=root / "skill")
+
+        self.assertEqual(token, "legacy-token")
+        self.assertEqual(source, "user_env")
 
 
 class BoundedMapTest(unittest.TestCase):

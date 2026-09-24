@@ -1,0 +1,8 @@
+/.idea/
+/.agents/
+/.claude/
+.env
+__pycache__/
+fetch-daily-work-report-from-giteev5/scripts/__pycache__/
+tests/
+/profiles/

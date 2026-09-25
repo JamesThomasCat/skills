@@ -69,6 +69,7 @@ USD→EUR = 0.861117
 
 ## 代码示例
 
+```python
 import requests
 
 j = requests.get("https://open.er-api.com/v6/latest/USD", timeout=10).json()
@@ -79,6 +80,7 @@ def to_cny_per_gram(usd_per_oz):
     return usd_per_oz * usdcny / OZT
 
 print("USD/CNY:", usdcny, "| 4415.40 USD/oz =", round(to_cny_per_gram(4415.40), 2), "元/克")
+```
 
 ## 注意事项
 

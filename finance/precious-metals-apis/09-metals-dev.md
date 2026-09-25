@@ -94,6 +94,7 @@ plan, usage, limit, remaining
 
 ## 请求示例
 
+```bash
 # 全部现价 + 汇率（人民币、克）
 curl "https://api.metals.dev/v1/latest?api_key=YOUR_KEY&currency=CNY&unit=g"
 
@@ -111,6 +112,7 @@ curl "https://api.metals.dev/v1/currencies?api_key=YOUR_KEY&base=USD"
 
 # 账户配额
 curl "https://api.metals.dev/v1/usage?api_key=YOUR_KEY"
+```
 
 ## 注意事项
 

@@ -89,6 +89,7 @@ value 为字符串，缺失时为 "."。
 
 ## 代码示例
 
+```python
 import requests
 
 KEY = "你的免费KEY"
@@ -104,6 +105,7 @@ r = requests.get("https://api.stlouisfed.org/fred/series/observations",
                          "sort_order": "desc", "limit": 5}).json()
 for o in r["observations"]:
     print(o["date"], o["value"])
+```
 
 ## 注意事项
 

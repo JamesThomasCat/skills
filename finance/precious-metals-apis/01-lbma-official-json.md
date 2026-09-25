@@ -37,7 +37,7 @@ GET https://prices.lbma.org.uk/json/{文件名}.json
 - **查询参数**：无。实测 6 种参数（`?start=`、`?from=`、`?date=`、`?limit=`、`?days=`、`?range=`）**全部被忽略**，返回内容不变（静态文件，Apache 直出）。
 - **目录列表**：`GET https://prices.lbma.org.uk/json/` → **403 Forbidden**（无索引页，文件名需提前知道）。
 
-### 文件名枚举（8 个有效端点）
+### 文件名枚举（7 个有效端点，实测）
 
 | 文件名 | 内容 | 实测首条 | 首条起始日期 |
 |---|---|---|---|
@@ -48,7 +48,6 @@ GET https://prices.lbma.org.uk/json/{文件名}.json
 | `platinum_pm.json` | 铂金下午定盘 | `[470.5,289.45,null]` | 1990-04-02 |
 | `palladium_am.json` | 钯金上午定盘 | `[128,78.7,null]` | 1990-04-02 |
 | `palladium_pm.json` | 钯金下午定盘 | `[127.65,78.55,null]` | 1990-04-02 |
-| （第 8 个文件名） | 见下"未探明文件名" | — | — |
 
 **404 实测**：`silver_am.json`、`silver_pm.json`、`lbma_gold_am.json`、`gold_pm_latest.json`、`latest.json`、`lbma_gold.json`、`lbma_gold_am.json` 等猜测均 404。白银不区分 AM/PM。
 

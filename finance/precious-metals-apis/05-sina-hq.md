@@ -113,6 +113,7 @@ var hq_str_{代码}="字段1,字段2,...,字段N";
 
 ### Python
 
+```python
 import requests
 
 url = "https://hq.sinajs.cn/list=gds_AUTD,gds_AGTD,hf_XAU,USDCNY"
@@ -122,11 +123,14 @@ for line in text.strip().splitlines():
     code = line.split("=")[0].replace("var hq_str_", "")
     fields = line.split('"')[1].split(",")
     print(code, fields[0], fields[-1])
+```
 
 ### PowerShell（本地验证命令）
 
+```powershell
 $r = Invoke-WebRequest -Headers @{Referer="https://finance.sina.com.cn"} -Uri "https://hq.sinajs.cn/list=gds_AUTD,hf_XAU,USDCNY"
 [System.Text.Encoding]::GetEncoding("GB2312").GetString($r.RawContentStream.ToArray())
+```
 
 ## 注意事项
 
@@ -135,4 +139,5 @@ $r = Invoke-WebRequest -Headers @{Referer="https://finance.sina.com.cn"} -Uri "h
 3. 免费接口延迟 10–15 分钟，非实时。
 4. 新浪无官方字段文档，字段顺序"可能变化"（社区文档原话）；接入后自建校验。
 5. hf_XAU 单位文档标注存疑（疑为美元/盎司），务必交叉核对。
+   > **2026-09-25 补充实测**：同一时刻新浪 `hf_XAU` 的量级与腾讯 `hf_XAU`（4273.02）、gold-api.com（4274.30）、Swissquote（4271.90）完全一致，可确认该字段为**美元/盎司**，社区文档标注的"元/千克"有误。
 6. 人民币 T+D 与沪金/沪银：非交易时段（夜市休市）返回的是最近收盘快照。

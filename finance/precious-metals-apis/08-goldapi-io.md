@@ -97,6 +97,7 @@ timestamp, base, quote, exchange, symbol, price, bid, ask。
 
 ## 请求示例
 
+```bash
 # 最新金价（人民币，精简响应）
 curl -H "x-access-token: YOUR_API_KEY" "https://www.goldapi.io/api/price/XAU/CNY?melt_price=false&currency_info=false"
 
@@ -111,6 +112,7 @@ curl -H "x-access-token: YOUR_API_KEY" "https://www.goldapi.io/api/lbma/XAU/2026
 
 # 汇率
 curl -H "x-access-token: YOUR_API_KEY" "https://www.goldapi.io/api/rates/USD/CNY"
+```
 
 ## 注意事项
 
